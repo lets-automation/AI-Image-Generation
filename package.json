@@ -1,0 +1,30 @@
+{
+  "name": "ep-product",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "lint": "turbo lint",
+    "type-check": "turbo type-check",
+    "db:migrate": "cd apps/api && npx prisma migrate dev",
+    "db:seed": "cd apps/api && npx prisma db seed",
+    "db:generate": "cd apps/api && npx prisma generate",
+    "clean": "turbo clean"
+  },
+  "devDependencies": {
+    "turbo": "^2.3.0",
+    "typescript": "^5.7.0"
+  },
+  "packageManager": "npm@10.9.4",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "sonner": "^2.0.7"
+  }
+}

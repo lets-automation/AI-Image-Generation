@@ -1,0 +1,509 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+generator jsonTypes {
+  provider = "prisma-json-types-generator"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── ENUMS ────────────────────────────────────────────────
+
+enum UserRole {
+  USER
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum GenerationStatus {
+  QUEUED
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum QualityTier {
+  BASIC
+  STANDARD
+  PREMIUM
+}
+
+enum ContentType {
+  EVENT
+  POSTER
+}
+
+enum FieldType {
+  TEXT
+  TEXTAREA
+  IMAGE
+  COLOR
+  SELECT
+  NUMBER
+  PHONE
+  EMAIL
+  URL
+}
+
+enum Position {
+  TOP_LEFT
+  TOP_CENTER
+  TOP_RIGHT
+  MIDDLE_LEFT
+  MIDDLE_CENTER
+  MIDDLE_RIGHT
+  BOTTOM_LEFT
+  BOTTOM_CENTER
+  BOTTOM_RIGHT
+}
+
+enum Language {
+  ENGLISH
+  HINDI
+  SPANISH
+  FRENCH
+  ARABIC
+  JAPANESE
+  CHINESE
+  KOREAN
+  PORTUGUESE
+  GERMAN
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  EXPIRED
+  BILLING_RETRY
+  GRACE_PERIOD
+  REVOKED
+  CANCELLED
+}
+
+enum SubscriptionEventType {
+  INITIAL_BUY
+  RENEWAL
+  CANCEL
+  REFUND
+  GRACE_PERIOD_START
+  BILLING_RETRY_START
+  EXPIRE
+  REVOKE
+  UPGRADE
+  DOWNGRADE
+}
+
+enum SubscriptionProvider {
+  APPLE
+  GOOGLE
+  RAZORPAY
+}
+
+// ─── MODELS ───────────────────────────────────────────────
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  phone         String?   @unique
+  passwordHash  String
+  name          String
+  role          UserRole  @default(USER)
+  customRoleId  String?
+  isActive      Boolean   @default(true)
+  canGenerate   Boolean   @default(false)
+  emailVerified Boolean   @default(false)
+  avatarUrl     String?
+  lastLoginAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime?
+
+  customRole           CustomRole?          @relation(fields: [customRoleId], references: [id])
+  generations          Generation[]
+  downloads            Download[]
+  refreshTokens        RefreshToken[]
+  subscriptions        Subscription[]
+  subscriptionBalances SubscriptionBalance[]
+
+  @@index([email])
+  @@index([role])
+  @@index([customRoleId])
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String    @id @default(cuid())
+  token     String    @unique
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime  @default(now())
+  revokedAt DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+  @@map("refresh_tokens")
+}
+
+model Template {
+  id            String      @id @default(cuid())
+  name          String
+  contentType   ContentType
+  categoryId    String
+  imageUrl      String
+  publicId      String
+  width         Int
+  height        Int
+  /// [TemplateSafeZones]
+  safeZones     Json
+  /// [TemplateMetadata]
+  metadata      Json?
+  layoutVersion Int         @default(1)
+  isActive      Boolean     @default(true)
+  usageCount    Int         @default(0)
+  sortOrder     Int         @default(0)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  deletedAt     DateTime?
+
+  category       Category              @relation(fields: [categoryId], references: [id])
+  generations    Generation[]
+  layoutHistory  TemplateLayoutHistory[]
+
+  @@index([contentType])
+  @@index([categoryId])
+  @@index([isActive, contentType])
+  @@map("templates")
+}
+
+model TemplateLayoutHistory {
+  id         String   @id @default(cuid())
+  templateId String
+  version    Int
+  /// [TemplateSafeZones]
+  safeZones  Json
+  createdAt  DateTime @default(now())
+
+  template Template @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@unique([templateId, version])
+  @@index([templateId])
+  @@map("template_layout_history")
+}
+
+model Category {
+  id          String      @id @default(cuid())
+  name        String
+  slug        String      @unique
+  contentType ContentType
+  description String?
+  iconUrl     String?
+  parentId    String?
+  isActive    Boolean     @default(true)
+  sortOrder   Int         @default(0)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  parent       Category?    @relation("CategoryHierarchy", fields: [parentId], references: [id])
+  children     Category[]   @relation("CategoryHierarchy")
+  templates    Template[]
+  fieldSchemas FieldSchema[]
+
+  @@index([contentType, isActive])
+  @@index([parentId])
+  @@map("categories")
+}
+
+model FieldSchema {
+  id            String    @id @default(cuid())
+  categoryId    String
+  fieldKey      String
+  label         String
+  fieldType     FieldType
+  isRequired    Boolean   @default(false)
+  sortOrder     Int       @default(0)
+  placeholder   String?
+  defaultValue  String?
+  hasPosition   Boolean   @default(false)
+  /// [FieldValidation]
+  validation    Json?
+  /// [FieldDisplayConfig]
+  displayConfig Json?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([categoryId, fieldKey])
+  @@index([categoryId])
+  @@map("field_schemas")
+}
+
+model Generation {
+  id              String           @id @default(cuid())
+  userId          String
+  templateId      String?
+  contentType     ContentType
+  qualityTier     QualityTier
+  language        String
+  orientation     String?          // User-chosen: SQUARE, PORTRAIT, LANDSCAPE, STORY, WIDE
+  prompt          String
+  /// [GenerationFieldValues]
+  fieldValues     Json
+  /// [GenerationPositionMap]
+  positionMap     Json
+  /// [GenerationProviderConfig]
+  providerConfig  Json?
+  status          GenerationStatus @default(QUEUED)
+  creditCost      Int
+  templateVersion Int?
+  isPublic        Boolean          @default(false)
+  baseImageUrl    String?
+  generationHash  String?
+  batchId         String?
+  resultImageUrl  String?
+  resultPublicId  String?
+  errorMessage    String?
+  jobId           String?
+  processingMs    Int?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  user      User       @relation(fields: [userId], references: [id])
+  template  Template?  @relation(fields: [templateId], references: [id])
+  downloads Download[]
+
+  @@index([userId])
+  @@index([userId, status])
+  @@index([status])
+  @@index([isPublic, status])
+  @@index([createdAt])
+  @@index([generationHash])
+  @@index([batchId])
+  @@map("generations")
+}
+
+model Download {
+  id           String   @id @default(cuid())
+  userId       String
+  generationId String
+  format       String   @default("png")
+  resolution   String   @default("1080x1080")
+  downloadedAt DateTime @default(now())
+
+  user       User       @relation(fields: [userId], references: [id])
+  generation Generation @relation(fields: [generationId], references: [id])
+
+  @@index([userId])
+  @@index([generationId])
+  @@map("downloads")
+}
+
+model SubscriptionPlan {
+  id              String        @id @default(cuid())
+  name            String                               // "Starter", "Pro", "Premium"
+  appleProductId  String        @unique                // Apple IAP product ID
+  googleProductId String?       @unique                // Future: Google Play product ID
+  razorpayPlanId  String?       @unique                // Razorpay plan ID (for web)
+  weeklyCredits   Int                                  // Credits granted per renewal
+  tierAccess      QualityTier[]                        // Which generation tiers allowed
+  priceInr        Int                                  // Display price (paise)
+  isActive        Boolean       @default(true)
+  sortOrder       Int           @default(0)
+  /// [SubscriptionPlanFeatures]
+  features        Json?                                // Feature list for UI
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  subscriptions Subscription[]
+
+  @@map("subscription_plans")
+}
+
+model Subscription {
+  id                      String              @id @default(cuid())
+  userId                  String
+  planId                  String
+  provider                SubscriptionProvider @default(APPLE)
+  originalTransactionId   String              @unique       // Apple: original_transaction_id
+  latestTransactionId     String?                           // Most recent transaction
+  status                  SubscriptionStatus  @default(ACTIVE)
+  currentPeriodStart      DateTime
+  currentPeriodEnd        DateTime
+  autoRenewEnabled        Boolean             @default(true)
+  lastRenewalDate         DateTime?
+  nextExpectedRenewalDate DateTime?
+  cancellationReason      String?
+  pendingPlanId           String?                           // Set on downgrade, applied at next renewal
+  razorpayOrderId         String?                           // Razorpay order_id
+  razorpayPaymentId       String?                           // Razorpay payment_id
+  razorpaySignature       String?                           // Razorpay payment signature
+  environment             String              @default("Production") // "Sandbox" | "Production"
+  createdAt               DateTime            @default(now())
+  updatedAt               DateTime            @updatedAt
+
+  user     User               @relation(fields: [userId], references: [id])
+  plan     SubscriptionPlan   @relation(fields: [planId], references: [id])
+  events   SubscriptionEvent[]
+  balances SubscriptionBalance[]
+
+  @@index([userId])
+  @@index([originalTransactionId])
+  @@index([status])
+  @@map("subscriptions")
+}
+
+model SubscriptionEvent {
+  id               String                @id @default(cuid())
+  subscriptionId   String
+  notificationId   String?               @unique   // Apple notification UUID (idempotency)
+  eventType        SubscriptionEventType
+  transactionId    String?                         // Apple transactionId for this event
+  effectiveDate    DateTime
+  /// [SubscriptionEventPayload]
+  payload          Json?                           // Raw Apple notification payload
+  createdAt        DateTime              @default(now())
+
+  subscription Subscription @relation(fields: [subscriptionId], references: [id])
+
+  @@index([subscriptionId])
+  @@index([notificationId])
+  @@map("subscription_events")
+}
+
+model SubscriptionBalance {
+  id               String   @id @default(cuid())
+  userId           String
+  subscriptionId   String
+  periodStart      DateTime
+  periodEnd        DateTime
+  weeklyCredits    Int                   // Total credits for this period
+  usedCredits      Int      @default(0)
+  remainingCredits Int                   // weeklyCredits - usedCredits
+  isClosed         Boolean  @default(false)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  user         User         @relation(fields: [userId], references: [id])
+  subscription Subscription @relation(fields: [subscriptionId], references: [id])
+
+  @@index([userId, isClosed])
+  @@index([subscriptionId])
+  @@index([periodEnd])
+  @@map("subscription_balances")
+}
+
+model FestivalCalendar {
+  id             String      @id @default(cuid())
+  name           String
+  description    String?
+  date           DateTime    @db.Date
+  contentType    ContentType
+  visibilityDays Int         @default(7)
+  /// [FestivalMetadata]
+  metadata       Json?
+  isActive       Boolean     @default(true)
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  @@index([date])
+  @@index([isActive, date])
+  @@map("festival_calendar")
+}
+
+model ModelPricing {
+  id           String      @id @default(cuid())
+  qualityTier  QualityTier
+  providerName String
+  modelId      String
+  creditCost   Int
+  isActive     Boolean     @default(true)
+  priority     Int         @default(0)
+  /// [ModelConfig]
+  config       Json?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@unique([qualityTier, providerName, modelId])
+  @@index([qualityTier, isActive])
+  @@map("model_pricing")
+}
+
+model IdempotencyKey {
+  id           String   @id @default(cuid())
+  key          String   @unique
+  requestHash  String
+  generationId String?
+  /// [IdempotencyResponse]
+  responseData Json?
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+
+  @@index([key])
+  @@index([expiresAt])
+  @@map("idempotency_keys")
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  action    String
+  entity    String
+  entityId  String
+  /// [AuditChanges]
+  changes   Json?
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@index([entity, entityId])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model CustomRole {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  /// [RolePermissions]
+  permissions Json     // Array of permission strings e.g. ["admin.users.read","admin.categories.write"]
+  isSystem    Boolean  @default(false) // Built-in roles can't be deleted
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users User[]
+
+  @@map("custom_roles")
+}
+
+model SystemConfig {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  /// [SystemConfigValue]
+  value     Json
+  updatedAt DateTime @updatedAt
+
+  @@map("system_config")
+}
+
+model SystemLanguage {
+  id          String   @id @default(cuid())
+  code        String   @unique            // e.g. "ENGLISH", "HINDI", "MARATHI"
+  label       String                      // e.g. "English", "Hindi"
+  nativeLabel String                      // e.g. "English", "हिन्दी"
+  script      String   @default("Latin")  // e.g. "Latin", "Devanagari", "CJK"
+  fontFamily  String   @default("Noto Sans")
+  direction   String   @default("ltr")    // "ltr" or "rtl"
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("system_languages")
+}

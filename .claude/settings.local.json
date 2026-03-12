@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node -e \"const fs=require\\(''fs''\\); const d=JSON.parse\\(fs.readFileSync\\(''toolu_01DAEHeawMFfwwnvi6Pz88Xg.json'',''utf8''\\)\\); fs.writeFileSync\\(''plan-output.md'', d[0].text, ''utf8''\\); console.log\\(''Written'', d[0].text.length, ''chars''\\)\")",
+      "Bash(npm init -y)",
+      "Bash(npm install)",
+      "Bash(npx tsc --noEmit)",
+      "Bash(npx tsc)"
+    ]
+  }
+}

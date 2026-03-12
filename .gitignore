@@ -1,0 +1,45 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build
+dist/
+.next/
+out/
+build/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/settings.json
+.idea/
+*.sw?
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Turbo
+.turbo/
+
+# Prisma
+apps/api/prisma/migrations/**/migration_lock.toml
+
+# Generated
+*.generated.*
+
+# Logs
+*.log
+npm-debug.log*
+
+# Font assets (downloaded at build time)
+apps/api/src/engine/fonts/assets/*.ttf
+apps/api/src/engine/fonts/assets/*.otf
+!apps/api/src/engine/fonts/assets/.gitkeep
+
+# Coverage
+coverage/
