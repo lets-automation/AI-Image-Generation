@@ -484,6 +484,8 @@ export class GenerationService {
       language: generation.language,
       contentType: generation.contentType,
       creditCost: generation.creditCost,
+      isPublic: generation.isPublic ?? false,
+      orientation: generation.orientation ?? null,
       jobId: generation.jobId ?? null,
       resultImageUrl: generation.resultImageUrl ?? null,
       errorMessage: generation.errorMessage ?? null,
