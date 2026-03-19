@@ -7,7 +7,12 @@ import { PageHeader, LoadingState } from "@/components/admin";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Save } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+import { Save, CreditCard, Apple, Eye, EyeOff } from "lucide-react";
 
 interface ConfigEntry {
   key: string;
@@ -60,10 +65,48 @@ const CONFIG_DEFINITIONS: ConfigEntry[] = [
   },
 ];
 
+// ─── Credential field definitions ──────────────────────────
+
+type CredentialEntry = {
+  key: string;
+  label: string;
+  group: string;
+  maskedValue: string;
+  source: "db" | "env" | "not_set";
+};
+
+interface CredFieldDef {
+  key: string;
+  label: string;
+  type: "password" | "textarea" | "select";
+  options?: string[];
+  placeholder?: string;
+}
+
+const RAZORPAY_FIELDS: CredFieldDef[] = [
+  { key: "razorpay_key_id", label: "Key ID", type: "password", placeholder: "rzp_live_..." },
+  { key: "razorpay_key_secret", label: "Key Secret", type: "password", placeholder: "Enter key secret..." },
+  { key: "razorpay_webhook_secret", label: "Webhook Secret", type: "password", placeholder: "Enter webhook secret..." },
+];
+
+const APPLE_FIELDS: CredFieldDef[] = [
+  { key: "apple_key_id", label: "Key ID", type: "password", placeholder: "e.g. V7YFD8FUAG" },
+  { key: "apple_issuer_id", label: "Issuer ID", type: "password", placeholder: "e.g. 275f8bf8-..." },
+  { key: "apple_bundle_id", label: "Bundle ID", type: "password", placeholder: "e.g. com.example.app" },
+  { key: "apple_private_key", label: "Private Key (ES256)", type: "textarea", placeholder: "Paste PKCS#8 private key..." },
+  { key: "apple_environment", label: "Environment", type: "select", options: ["Sandbox", "Production"] },
+];
+
 export default function AdminSettingsPage() {
   const [configs, setConfigs] = useState<Record<string, string | number>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
+
+  // Credential state
+  const [credentials, setCredentials] = useState<CredentialEntry[]>([]);
+  const [credValues, setCredValues] = useState<Record<string, string>>({});
+  const [credSaving, setCredSaving] = useState<string | null>(null);
+  const [credVisible, setCredVisible] = useState<Record<string, boolean>>({});
 
   const loadConfigs = useCallback(async () => {
     try {
@@ -85,7 +128,16 @@ export default function AdminSettingsPage() {
     }
   }, []);
 
-  useEffect(() => { loadConfigs(); }, [loadConfigs]);
+  const loadCredentials = useCallback(async () => {
+    try {
+      const data = await adminApi.getCredentials();
+      setCredentials(data);
+    } catch {
+      // Silently fail — may not be SUPER_ADMIN
+    }
+  }, []);
+
+  useEffect(() => { loadConfigs(); loadCredentials(); }, [loadConfigs, loadCredentials]);
 
   function getValue(key: string, defaultValue: string | number): string | number {
     return configs[key] ?? defaultValue;
@@ -112,6 +164,29 @@ export default function AdminSettingsPage() {
     }
   }
 
+  async function saveCredential(key: string) {
+    const value = credValues[key];
+    if (!value?.trim()) {
+      toast.error("Please enter a value");
+      return;
+    }
+    setCredSaving(key);
+    try {
+      await adminApi.updateCredential(key, value.trim());
+      toast.success("Credential saved");
+      setCredValues((prev) => ({ ...prev, [key]: "" }));
+      loadCredentials();
+    } catch {
+      toast.error("Failed to save credential");
+    } finally {
+      setCredSaving(null);
+    }
+  }
+
+  function getCredMeta(key: string): CredentialEntry | undefined {
+    return credentials.find((c) => c.key === key);
+  }
+
   if (loading) {
     return (
       <div>
@@ -124,11 +199,87 @@ export default function AdminSettingsPage() {
   const budgetCents = Number(getValue("daily_ai_budget_cents", 10000));
   const budgetDollars = (budgetCents / 100).toFixed(2);
 
+  function renderCredField(field: CredFieldDef) {
+    const meta = getCredMeta(field.key);
+    return (
+      <div key={field.key} className="space-y-1.5">
+        <div className="flex items-center gap-2">
+          <label className="text-sm font-medium">{field.label}</label>
+          {meta && (
+            <Badge
+              variant={meta.source === "db" ? "default" : meta.source === "env" ? "secondary" : "outline"}
+              className="text-[10px] py-0"
+            >
+              {meta.source === "db" ? "DB" : meta.source === "env" ? "ENV" : "NOT SET"}
+            </Badge>
+          )}
+        </div>
+        {meta?.maskedValue && (
+          <p className="text-xs text-muted-foreground font-mono">
+            Current: {meta.maskedValue}
+          </p>
+        )}
+        <div className="flex items-start gap-2">
+          {field.type === "textarea" ? (
+            <Textarea
+              value={credValues[field.key] ?? ""}
+              onChange={(e) => setCredValues((prev) => ({ ...prev, [field.key]: e.target.value }))}
+              placeholder={field.placeholder}
+              rows={3}
+              className="flex-1 font-mono text-xs"
+            />
+          ) : field.type === "select" ? (
+            <Select
+              value={credValues[field.key] || ""}
+              onValueChange={(v) => setCredValues((prev) => ({ ...prev, [field.key]: v }))}
+            >
+              <SelectTrigger className="flex-1">
+                <SelectValue placeholder={meta?.maskedValue ? `Current: ${meta.maskedValue}` : "Select..."} />
+              </SelectTrigger>
+              <SelectContent>
+                {field.options?.map((opt) => (
+                  <SelectItem key={opt} value={opt}>{opt}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : (
+            <div className="relative flex-1">
+              <Input
+                type={credVisible[field.key] ? "text" : "password"}
+                value={credValues[field.key] ?? ""}
+                onChange={(e) => setCredValues((prev) => ({ ...prev, [field.key]: e.target.value }))}
+                placeholder={field.placeholder}
+                className="pr-10"
+              />
+              <button
+                type="button"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                onClick={() => setCredVisible((prev) => ({ ...prev, [field.key]: !prev[field.key] }))}
+              >
+                {credVisible[field.key] ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </div>
+          )}
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => saveCredential(field.key)}
+            disabled={credSaving === field.key || !credValues[field.key]?.trim()}
+            className="mt-0.5"
+          >
+            <Save className="mr-1 h-3.5 w-3.5" />
+            {credSaving === field.key ? "..." : "Save"}
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div>
       <PageHeader
         title="System Settings"
-        description="Configure cost guardrails, generation limits, and other system parameters. Changes take effect immediately."
+        description="Configure cost guardrails, generation limits, payment credentials, and other system parameters. Changes take effect immediately."
       />
 
       {/* AI Cost Guard Section */}
@@ -193,7 +344,7 @@ export default function AdminSettingsPage() {
       </Card>
 
       {/* Generation Limits Section */}
-      <Card>
+      <Card className="mb-6">
         <CardHeader>
           <CardTitle className="text-base">Generation Limits</CardTitle>
           <p className="text-sm text-muted-foreground">
@@ -230,6 +381,46 @@ export default function AdminSettingsPage() {
           })}
         </CardContent>
       </Card>
+
+      {/* Razorpay Credentials */}
+      {credentials.length > 0 && (
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <CreditCard className="h-4 w-4" />
+              Razorpay Credentials
+            </CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Payment gateway credentials for web subscriptions. Values saved here override .env settings.
+            </p>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {RAZORPAY_FIELDS.map(renderCredField)}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Apple Subscription Credentials */}
+      {credentials.length > 0 && (
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Apple className="h-4 w-4" />
+              Apple Subscription Credentials
+            </CardTitle>
+            <p className="text-sm text-muted-foreground">
+              App Store Server API credentials for iOS subscription validation. Values saved here override .env settings.
+            </p>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-4 sm:grid-cols-2">
+              {APPLE_FIELDS.map(renderCredField)}
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

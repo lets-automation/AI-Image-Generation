@@ -10,6 +10,7 @@
 import Razorpay from "razorpay";
 import crypto from "crypto";
 import { config } from "../../config/index.js";
+import { credentialService } from "../credential.service.js";
 import { prisma } from "../../config/database.js";
 import { logger } from "../../utils/logger.js";
 import { BadRequestError, NotFoundError } from "../../utils/errors.js";
@@ -18,19 +19,29 @@ import { subscriptionService } from "../subscription.service.js";
 // ─── Razorpay Instance ───────────────────────────────────
 
 let razorpayInstance: InstanceType<typeof Razorpay> | null = null;
+let cachedKeyId: string | null = null;
+let cachedKeySecret: string | null = null;
 
-function getRazorpay(): InstanceType<typeof Razorpay> {
-  if (!razorpayInstance) {
-    if (!config.RAZORPAY_KEY_ID || !config.RAZORPAY_KEY_SECRET) {
-      throw new Error(
-        "Razorpay configuration incomplete. Set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET."
-      );
-    }
-    razorpayInstance = new Razorpay({
-      key_id: config.RAZORPAY_KEY_ID,
-      key_secret: config.RAZORPAY_KEY_SECRET,
-    });
+async function getRazorpay(): Promise<InstanceType<typeof Razorpay>> {
+  const keyId = await credentialService.getCredentialOrEnv("razorpay_key_id");
+  const keySecret = await credentialService.getCredentialOrEnv("razorpay_key_secret");
+
+  if (!keyId || !keySecret) {
+    throw new Error(
+      "Razorpay configuration incomplete. Set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET."
+    );
   }
+
+  // Recreate instance if credentials changed
+  if (!razorpayInstance || cachedKeyId !== keyId || cachedKeySecret !== keySecret) {
+    razorpayInstance = new Razorpay({
+      key_id: keyId,
+      key_secret: keySecret,
+    });
+    cachedKeyId = keyId;
+    cachedKeySecret = keySecret;
+  }
+
   return razorpayInstance;
 }
 
@@ -86,7 +97,8 @@ export class RazorpayService {
     }
 
     // 3. Create Razorpay order
-    const razorpay = getRazorpay();
+    const razorpay = await getRazorpay();
+    const keyId = await credentialService.getCredentialOrEnv("razorpay_key_id");
 
     const order = await razorpay.orders.create({
       amount: plan.priceInr, // Already in paise
@@ -110,7 +122,7 @@ export class RazorpayService {
       currency: "INR",
       planId: plan.id,
       planName: plan.name,
-      keyId: config.RAZORPAY_KEY_ID,
+      keyId,
     };
   }
 
@@ -131,8 +143,9 @@ export class RazorpayService {
     const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = payment;
 
     // 1. Verify signature
+    const keySecret = await credentialService.getCredentialOrEnv("razorpay_key_secret");
     const expectedSignature = crypto
-      .createHmac("sha256", config.RAZORPAY_KEY_SECRET)
+      .createHmac("sha256", keySecret)
       .update(`${razorpay_order_id}|${razorpay_payment_id}`)
       .digest("hex");
 
@@ -274,11 +287,12 @@ export class RazorpayService {
    * @param signature - x-razorpay-signature header
    * @returns true if signature matches
    */
-  verifyWebhookSignature(body: string, signature: string): boolean {
-    if (!config.RAZORPAY_WEBHOOK_SECRET) return false;
+  async verifyWebhookSignature(body: string, signature: string): Promise<boolean> {
+    const webhookSecret = await credentialService.getCredentialOrEnv("razorpay_webhook_secret");
+    if (!webhookSecret) return false;
 
     const expectedSignature = crypto
-      .createHmac("sha256", config.RAZORPAY_WEBHOOK_SECRET)
+      .createHmac("sha256", webhookSecret)
       .update(body)
       .digest("hex");
 

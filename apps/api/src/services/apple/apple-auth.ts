@@ -9,7 +9,7 @@
  */
 
 import jwt from "jsonwebtoken";
-import { config } from "../../config/index.js";
+import { credentialService } from "../credential.service.js";
 
 const TOKEN_TTL_SECONDS = 3600; // 1 hour max per Apple docs
 const TOKEN_AUDIENCE = "appstoreconnect-v1";
@@ -51,7 +51,7 @@ function ensurePemFormat(key: string): string {
  * Caches the token until 5 minutes before expiry to avoid
  * generating a new one on every API call.
  */
-export function generateAppStoreJWT(): string {
+export async function generateAppStoreJWT(): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
 
   // Return cached token if still valid (with 5-minute buffer)
@@ -59,7 +59,10 @@ export function generateAppStoreJWT(): string {
     return cachedToken.token;
   }
 
-  const { APPLE_KEY_ID, APPLE_ISSUER_ID, APPLE_BUNDLE_ID, APPLE_PRIVATE_KEY } = config;
+  const APPLE_KEY_ID = await credentialService.getCredentialOrEnv("apple_key_id");
+  const APPLE_ISSUER_ID = await credentialService.getCredentialOrEnv("apple_issuer_id");
+  const APPLE_BUNDLE_ID = await credentialService.getCredentialOrEnv("apple_bundle_id");
+  const APPLE_PRIVATE_KEY = await credentialService.getCredentialOrEnv("apple_private_key");
 
   if (!APPLE_KEY_ID || !APPLE_ISSUER_ID || !APPLE_PRIVATE_KEY) {
     throw new Error(
@@ -94,8 +97,9 @@ export function generateAppStoreJWT(): string {
 /**
  * Get the base URL for the App Store Server API based on environment.
  */
-export function getAppStoreBaseUrl(): string {
-  return config.APPLE_ENVIRONMENT === "Production"
+export async function getAppStoreBaseUrl(): Promise<string> {
+  const env = await credentialService.getCredentialOrEnv("apple_environment");
+  return env === "Production"
     ? "https://api.storekit.itunes.apple.com"
     : "https://api.storekit-sandbox.itunes.apple.com";
 }

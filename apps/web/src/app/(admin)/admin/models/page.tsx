@@ -23,7 +23,7 @@ import {
 import {
   Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Plus, MoreHorizontal, Pencil, Power, Trash2, Info, HelpCircle } from "lucide-react";
+import { Plus, MoreHorizontal, Pencil, Power, Trash2, Info, HelpCircle, KeyRound, Save, Eye, EyeOff } from "lucide-react";
 
 interface ModelPricing {
   id: string;
@@ -89,8 +89,8 @@ interface ModelConfig {
   // Ideogram fields
   style_type: string;
   image_weight: number;
-  // Common
-  costCents: number;
+  // Common — stored as cents in DB, displayed as USD in UI
+  costUsd: number;
 }
 
 /** Default Ideogram style types per tier */
@@ -101,26 +101,28 @@ const TIER_STYLE_DEFAULTS: Record<string, string> = {
 };
 
 function configToStructured(config: Record<string, unknown> | null, tier: string): ModelConfig {
+  const costCents = (config?.costCents as number) ?? 8;
   return {
     quality: (config?.quality as string) ?? TIER_QUALITY_DEFAULTS[tier] ?? "medium",
     style_type: (config?.style_type as string) ?? TIER_STYLE_DEFAULTS[tier] ?? "DESIGN",
     image_weight: (config?.image_weight as number) ?? 35,
-    costCents: (config?.costCents as number) ?? 8,
+    costUsd: costCents / 100,
   };
 }
 
 function structuredToConfig(cfg: ModelConfig, provider: string): Record<string, unknown> {
+  const costCents = Math.round(cfg.costUsd * 100 * 100) / 100; // preserve 2 decimal places in cents
   if (provider === "ideogram") {
     return {
       style_type: cfg.style_type,
       image_weight: cfg.image_weight,
-      costCents: cfg.costCents,
+      costCents,
     };
   }
   // OpenAI (default)
   return {
     quality: cfg.quality,
-    costCents: cfg.costCents,
+    costCents,
   };
 }
 
@@ -154,7 +156,7 @@ export default function AdminModelsPage() {
   const [creditCost, setCreditCost] = useState(5);
   const [priority, setPriority] = useState(0);
   const [modelConfig, setModelConfig] = useState<ModelConfig>({
-    quality: "medium", style_type: "DESIGN", image_weight: 35, costCents: 8,
+    quality: "medium", style_type: "DESIGN", image_weight: 35, costUsd: 0.08,
   });
 
   const load = useCallback(async () => {
@@ -171,6 +173,43 @@ export default function AdminModelsPage() {
   }, [filterTier]);
 
   useEffect(() => { load(); }, [load]);
+
+  // ─── API Key state ─────────────────────────────────────────
+  type CredentialEntry = { key: string; label: string; group: string; maskedValue: string; source: "db" | "env" | "not_set" };
+  const [credentials, setCredentials] = useState<CredentialEntry[]>([]);
+  const [credValues, setCredValues] = useState<Record<string, string>>({});
+  const [credSaving, setCredSaving] = useState<string | null>(null);
+  const [credVisible, setCredVisible] = useState<Record<string, boolean>>({});
+
+  const loadCredentials = useCallback(async () => {
+    try {
+      const data = await adminApi.getCredentials();
+      setCredentials(data.filter((c) => c.group === "ai"));
+    } catch {
+      // Silently fail — may not be SUPER_ADMIN
+    }
+  }, []);
+
+  useEffect(() => { loadCredentials(); }, [loadCredentials]);
+
+  async function saveCredential(key: string) {
+    const value = credValues[key];
+    if (!value?.trim()) {
+      toast.error("Please enter a value");
+      return;
+    }
+    setCredSaving(key);
+    try {
+      await adminApi.updateCredential(key, value.trim());
+      toast.success("API key saved");
+      setCredValues((prev) => ({ ...prev, [key]: "" }));
+      loadCredentials();
+    } catch {
+      toast.error("Failed to save API key");
+    } finally {
+      setCredSaving(null);
+    }
+  }
 
   // Auto-apply tier defaults when tier changes
   useEffect(() => {
@@ -189,7 +228,7 @@ export default function AdminModelsPage() {
     setCreditCost(5);
     setPriority(0);
     setModelConfig({
-      quality: "medium", style_type: "DESIGN", image_weight: 35, costCents: 8,
+      quality: "medium", style_type: "DESIGN", image_weight: 35, costUsd: 0.08,
     });
     setEditId(null);
     setShowForm(false);
@@ -389,6 +428,70 @@ export default function AdminModelsPage() {
           ))}
         </TabsList>
       </Tabs>
+
+      {/* API Keys Section */}
+      {credentials.length > 0 && (
+        <Card className="mb-6">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <KeyRound className="h-4 w-4" />
+              AI Provider API Keys
+            </CardTitle>
+            <p className="text-xs text-muted-foreground">
+              Set API keys here to override environment variables. Keys saved here take priority over .env values.
+            </p>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-4 sm:grid-cols-2">
+              {credentials.map((cred) => (
+                <div key={cred.key} className="space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <label className="text-sm font-medium">{cred.label}</label>
+                    <Badge
+                      variant={cred.source === "db" ? "default" : cred.source === "env" ? "secondary" : "outline"}
+                      className="text-[10px] py-0"
+                    >
+                      {cred.source === "db" ? "DB" : cred.source === "env" ? "ENV" : "NOT SET"}
+                    </Badge>
+                  </div>
+                  {cred.maskedValue && (
+                    <p className="text-xs text-muted-foreground font-mono">
+                      Current: {cred.maskedValue}
+                    </p>
+                  )}
+                  <div className="flex items-center gap-2">
+                    <div className="relative flex-1">
+                      <Input
+                        type={credVisible[cred.key] ? "text" : "password"}
+                        value={credValues[cred.key] ?? ""}
+                        onChange={(e) => setCredValues((prev) => ({ ...prev, [cred.key]: e.target.value }))}
+                        placeholder="Enter new key..."
+                        className="pr-10"
+                      />
+                      <button
+                        type="button"
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                        onClick={() => setCredVisible((prev) => ({ ...prev, [cred.key]: !prev[cred.key] }))}
+                      >
+                        {credVisible[cred.key] ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => saveCredential(cred.key)}
+                      disabled={credSaving === cred.key || !credValues[cred.key]?.trim()}
+                    >
+                      <Save className="mr-1 h-3.5 w-3.5" />
+                      {credSaving === cred.key ? "..." : "Save"}
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {loading ? (
         <LoadingState />
@@ -613,17 +716,20 @@ export default function AdminModelsPage() {
               </div>
               <div>
                 <Label className="text-xs">
-                  Provider Cost (cents)
-                  <HelpTip text="Estimated cost per generation in USD cents. Used by the cost guard to track daily AI spend." />
+                  Provider Cost (USD)
+                  <HelpTip text="Estimated cost per generation in USD. e.g. 0.013 = $0.013 per image. Used by the cost guard to track daily AI spend." />
                 </Label>
                 <Input
                   type="number"
                   min={0}
-                  step={1}
-                  value={modelConfig.costCents}
-                  onChange={(e) => setModelConfig({ ...modelConfig, costCents: +e.target.value })}
+                  step={0.001}
+                  value={modelConfig.costUsd}
+                  onChange={(e) => setModelConfig({ ...modelConfig, costUsd: +e.target.value })}
                   className="mt-1"
                 />
+                <p className="text-[10px] text-muted-foreground mt-0.5">
+                  = {(modelConfig.costUsd * 100).toFixed(2)}¢ per generation
+                </p>
               </div>
             </div>
           ) : (
@@ -648,17 +754,20 @@ export default function AdminModelsPage() {
               </div>
               <div>
                 <Label className="text-xs">
-                  Provider Cost (cents)
-                  <HelpTip text="Estimated cost per generation in USD cents. Used by the cost guard to track daily AI spend." />
+                  Provider Cost (USD)
+                  <HelpTip text="Estimated cost per generation in USD. e.g. 0.013 = $0.013 per image. Used by the cost guard to track daily AI spend." />
                 </Label>
                 <Input
                   type="number"
                   min={0}
-                  step={1}
-                  value={modelConfig.costCents}
-                  onChange={(e) => setModelConfig({ ...modelConfig, costCents: +e.target.value })}
+                  step={0.001}
+                  value={modelConfig.costUsd}
+                  onChange={(e) => setModelConfig({ ...modelConfig, costUsd: +e.target.value })}
                   className="mt-1"
                 />
+                <p className="text-[10px] text-muted-foreground mt-0.5">
+                  = {(modelConfig.costUsd * 100).toFixed(2)}¢ per generation
+                </p>
               </div>
             </div>
           )}

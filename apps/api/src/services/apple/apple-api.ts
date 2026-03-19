@@ -280,8 +280,8 @@ export function decodeWebhookEvent(
 export async function getSubscriptionStatus(
   originalTransactionId: string
 ): Promise<SubscriptionStatusResult> {
-  const baseUrl = getAppStoreBaseUrl();
-  const token = generateAppStoreJWT();
+  const baseUrl = await getAppStoreBaseUrl();
+  const token = await generateAppStoreJWT();
 
   const url = `${baseUrl}/inApps/v1/subscriptions/${originalTransactionId}`;
 
@@ -340,8 +340,8 @@ export async function getSubscriptionStatus(
 export async function getTransactionHistory(
   originalTransactionId: string
 ): Promise<VerifiedTransaction[]> {
-  const baseUrl = getAppStoreBaseUrl();
-  const token = generateAppStoreJWT();
+  const baseUrl = await getAppStoreBaseUrl();
+  const token = await generateAppStoreJWT();
   const transactions: VerifiedTransaction[] = [];
   let hasMore = true;
   let revision: string | undefined;

@@ -1,5 +1,6 @@
 import sharp from "sharp";
 import { config } from "../../config/index.js";
+import { credentialService } from "../../services/credential.service.js";
 import { logger } from "../../utils/logger.js";
 import {
   BaseProvider,
@@ -31,20 +32,21 @@ export class OpenAIProvider extends BaseProvider {
   readonly name = "openai";
   readonly displayName = "OpenAI";
 
-  private readonly apiKey: string;
   private readonly baseUrl = "https://api.openai.com/v1";
 
-  constructor() {
-    super();
-    this.apiKey = config.OPENAI_API_KEY;
+  /** Fetch API key from DB first, fallback to env */
+  private async getApiKey(): Promise<string> {
+    return credentialService.getCredentialOrEnv("openai_api_key");
   }
 
   isConfigured(): boolean {
-    return !!this.apiKey;
+    // Sync check for registry — env key is always available for this
+    return !!config.OPENAI_API_KEY;
   }
 
   async generate(input: ProviderGenerateInput): Promise<ProviderGenerateResult> {
-    if (!this.isConfigured()) {
+    const apiKey = await this.getApiKey();
+    if (!apiKey) {
       throw new Error("OpenAI API key not configured");
     }
 
@@ -59,11 +61,11 @@ export class OpenAIProvider extends BaseProvider {
 
     // Use /images/edits when we have reference images (template and/or logo)
     if (input.baseImageBuffer || input.logoBuffer) {
-      return this.generateWithEdits(input, model, quality, size);
+      return this.generateWithEdits(input, model, quality, size, apiKey);
     }
 
     // Fallback: /images/generations (text-to-image only, no reference)
-    return this.generateFromPrompt(input, model, quality, size);
+    return this.generateFromPrompt(input, model, quality, size, apiKey);
   }
 
   /**
@@ -81,7 +83,8 @@ export class OpenAIProvider extends BaseProvider {
     input: ProviderGenerateInput,
     model: string,
     quality: string,
-    size: string
+    size: string,
+    apiKey: string
   ): Promise<ProviderGenerateResult> {
     logger.info({ model, quality, size }, "OpenAI: generating via /images/edits with reference images");
 
@@ -124,7 +127,7 @@ export class OpenAIProvider extends BaseProvider {
     const response = await fetch(`${this.baseUrl}/images/edits`, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${this.apiKey}`,
+        Authorization: `Bearer ${apiKey}`,
       },
       body: formData,
       signal: input.signal,
@@ -165,14 +168,15 @@ export class OpenAIProvider extends BaseProvider {
     input: ProviderGenerateInput,
     model: string,
     quality: string,
-    size: string
+    size: string,
+    apiKey: string
   ): Promise<ProviderGenerateResult> {
     logger.info({ model, quality, size }, "OpenAI: text-to-image via /images/generations");
 
     const response = await fetch(`${this.baseUrl}/images/generations`, {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${this.apiKey}`,
+        Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -258,8 +262,9 @@ export class OpenAIProvider extends BaseProvider {
 
     const start = Date.now();
     try {
+      const apiKey = await this.getApiKey();
       const response = await fetch(`${this.baseUrl}/models`, {
-        headers: { Authorization: `Bearer ${this.apiKey}` },
+        headers: { Authorization: `Bearer ${apiKey}` },
         signal: AbortSignal.timeout(5000),
       });
       const latencyMs = Date.now() - start;

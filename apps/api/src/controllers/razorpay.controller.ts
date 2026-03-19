@@ -79,7 +79,7 @@ export async function handleRazorpayWebhook(req: Request, res: Response) {
   const rawBody = (req as any).rawBody || JSON.stringify(req.body);
 
   // 1. Verify webhook signature
-  if (!signature || !razorpayService.verifyWebhookSignature(rawBody, signature)) {
+  if (!signature || !(await razorpayService.verifyWebhookSignature(rawBody, signature))) {
     logger.warn("Razorpay webhook signature verification failed");
     res.status(400).json({ error: "Invalid webhook signature" });
     return;

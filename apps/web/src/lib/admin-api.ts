@@ -275,4 +275,10 @@ export const adminApi = {
     patch<{ id: string }>(`/admin/languages/${id}`, body),
   deleteLanguage: (id: string) =>
     del(`/admin/languages/${id}`),
+
+  // Credentials (SUPER_ADMIN)
+  getCredentials: () =>
+    get<Array<{ key: string; label: string; group: string; maskedValue: string; source: "db" | "env" | "not_set" }>>("/admin/credentials"),
+  updateCredential: (key: string, value: string) =>
+    apiClient.put(`/admin/credentials/${key}`, { value }).then((r) => r.data),
 };

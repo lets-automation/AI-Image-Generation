@@ -1,5 +1,6 @@
 import sharp from "sharp";
 import { config } from "../../config/index.js";
+import { credentialService } from "../../services/credential.service.js";
 import { logger } from "../../utils/logger.js";
 import {
   BaseProvider,
@@ -36,20 +37,21 @@ export class IdeogramProvider extends BaseProvider {
   readonly name = "ideogram";
   readonly displayName = "Ideogram";
 
-  private readonly apiKey: string;
   private readonly baseUrl = "https://api.ideogram.ai";
 
-  constructor() {
-    super();
-    this.apiKey = config.IDEOGRAM_API_KEY;
+  /** Fetch API key from DB first, fallback to env */
+  private async getApiKey(): Promise<string> {
+    return credentialService.getCredentialOrEnv("ideogram_api_key");
   }
 
   isConfigured(): boolean {
-    return !!this.apiKey;
+    // Sync check for registry — env key is always available
+    return !!config.IDEOGRAM_API_KEY;
   }
 
   async generate(input: ProviderGenerateInput): Promise<ProviderGenerateResult> {
-    if (!this.isConfigured()) {
+    const apiKey = await this.getApiKey();
+    if (!apiKey) {
       throw new Error("Ideogram API key not configured");
     }
 
@@ -58,11 +60,11 @@ export class IdeogramProvider extends BaseProvider {
 
     // Use /remix when we have a reference image (template)
     if (input.baseImageBuffer) {
-      return this.generateWithRemix(input, model, styleType);
+      return this.generateWithRemix(input, model, styleType, apiKey);
     }
 
     // Fallback: /generate (text-to-image only)
-    return this.generateFromPrompt(input, model, styleType);
+    return this.generateFromPrompt(input, model, styleType, apiKey);
   }
 
   /**
@@ -75,7 +77,8 @@ export class IdeogramProvider extends BaseProvider {
   private async generateWithRemix(
     input: ProviderGenerateInput,
     model: string,
-    styleType: string
+    styleType: string,
+    apiKey: string
   ): Promise<ProviderGenerateResult> {
     logger.info({ model, styleType }, "Ideogram: generating via /remix with reference image");
 
@@ -137,7 +140,7 @@ export class IdeogramProvider extends BaseProvider {
     const response = await fetch(`${this.baseUrl}/remix`, {
       method: "POST",
       headers: {
-        "Api-Key": this.apiKey,
+        "Api-Key": apiKey,
       },
       body: formData,
       signal: input.signal,
@@ -172,7 +175,8 @@ export class IdeogramProvider extends BaseProvider {
   private async generateFromPrompt(
     input: ProviderGenerateInput,
     model: string,
-    styleType: string
+    styleType: string,
+    apiKey: string
   ): Promise<ProviderGenerateResult> {
     logger.info({ model, styleType }, "Ideogram: text-to-image via /generate");
 
@@ -198,7 +202,7 @@ export class IdeogramProvider extends BaseProvider {
     const response = await fetch(`${this.baseUrl}/generate`, {
       method: "POST",
       headers: {
-        "Api-Key": this.apiKey,
+        "Api-Key": apiKey,
         "Content-Type": "application/json",
       },
       body: JSON.stringify(body),
@@ -277,10 +281,11 @@ export class IdeogramProvider extends BaseProvider {
     try {
       // Ideogram doesn't have a dedicated health endpoint,
       // so we just check if the API responds with a valid error for empty request
+      const apiKey = await this.getApiKey();
       const response = await fetch(`${this.baseUrl}/generate`, {
         method: "POST",
         headers: {
-          "Api-Key": this.apiKey,
+          "Api-Key": apiKey,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({}),

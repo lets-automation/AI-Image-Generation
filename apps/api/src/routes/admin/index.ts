@@ -566,4 +566,49 @@ router.delete(
   }
 );
 
+// ─── Credentials (SUPER_ADMIN only) ─────────────────────────
+
+import { credentialService, CREDENTIAL_KEYS } from "../../services/credential.service.js";
+
+/**
+ * GET /admin/credentials
+ * Returns all credential keys with masked values and source (db/env/not_set).
+ */
+router.get(
+  "/credentials",
+  requireRole("SUPER_ADMIN"),
+  async (_req: Request, res: Response, next: NextFunction) => {
+    try {
+      const credentials = await credentialService.listCredentials();
+      res.json({ success: true, data: credentials });
+    } catch (err) { next(err); }
+  }
+);
+
+/**
+ * PUT /admin/credentials/:key
+ * Set a credential value. Body: { value: string }
+ */
+router.put(
+  "/credentials/:key",
+  requireRole("SUPER_ADMIN"),
+  validate({ body: z.object({ value: z.string().min(0).max(10000) }) }),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const key = req.params.key as string;
+
+      if (!CREDENTIAL_KEYS.has(key)) {
+        res.status(400).json({
+          success: false,
+          error: { message: `Invalid credential key: "${key}"` },
+        });
+        return;
+      }
+
+      await credentialService.setCredential(key, req.body.value);
+      res.json({ success: true, message: `Credential "${key}" updated` });
+    } catch (err) { next(err); }
+  }
+);
+
 export { router as adminRoutes };
