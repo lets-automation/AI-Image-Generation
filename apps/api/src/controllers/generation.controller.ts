@@ -18,10 +18,12 @@ export class GenerationController {
       // 1. Check generation access
       const user = await prisma.user.findUnique({
         where: { id: req.userId! },
-        select: { canGenerate: true }
+        select: { canGenerate: true, role: true }
       });
       
-      if (!user?.canGenerate) {
+      // SUPER_ADMIN and ADMIN always have generation access
+      const isAdmin = user?.role === "SUPER_ADMIN" || user?.role === "ADMIN";
+      if (!isAdmin && !user?.canGenerate) {
         throw new ForbiddenError("You do not have permission to generate images.");
       }
 
