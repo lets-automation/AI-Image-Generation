@@ -66,8 +66,9 @@ export interface CustomRoleData {
 export interface SubscriptionPlanData {
   id: string;
   name: string;
-  appleProductId: string;
+  appleProductId: string | null;
   googleProductId: string | null;
+  razorpayPlanId: string | null;
   weeklyCredits: number;
   tierAccess: string[];
   priceInr: number;
@@ -223,6 +224,8 @@ export const adminApi = {
     patch<SubscriptionPlanData>(`/admin/subscription-plans/${id}`, body),
   deleteSubscriptionPlan: (id: string) =>
     del(`/admin/subscription-plans/${id}`),
+  createRazorpayPlan: (id: string) =>
+    post<SubscriptionPlanData>(`/admin/subscription-plans/${id}/razorpay-plan`),
 
   // Audit Logs
   listAuditLogs: (params?: string) =>

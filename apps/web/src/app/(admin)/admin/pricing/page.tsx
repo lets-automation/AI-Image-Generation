@@ -11,7 +11,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { adminApi, type SubscriptionPlanData } from "@/lib/admin-api";
-import { Plus, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import { Plus, MoreHorizontal, Pencil, Trash2, CreditCard, Loader2, CheckCircle2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import toast from "react-hot-toast";
 
@@ -31,7 +31,9 @@ export default function AdminPricingPage() {
   const [priceRupees, setPriceRupees] = useState(99);
   const [tierAccess, setTierAccess] = useState<string[]>(["BASIC"]);
   const [sortOrder, setSortOrder] = useState(0);
+  const [createRazorpayPlan, setCreateRazorpayPlan] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [creatingRzpFor, setCreatingRzpFor] = useState<string | null>(null);
 
   const loadPlans = useCallback(async () => {
     try {
@@ -55,6 +57,7 @@ export default function AdminPricingPage() {
     setPriceRupees(99);
     setTierAccess(["BASIC"]);
     setSortOrder(0);
+    setCreateRazorpayPlan(true);
     setEditing(null);
     setShowForm(false);
   }
@@ -62,24 +65,29 @@ export default function AdminPricingPage() {
   function startEdit(plan: SubscriptionPlanData) {
     setEditing(plan.id);
     setName(plan.name);
-    setAppleProductId(plan.appleProductId);
+    setAppleProductId(plan.appleProductId ?? "");
     setWeeklyCredits(plan.weeklyCredits);
     setPriceRupees(Math.round(plan.priceInr / 100));
     setTierAccess(plan.tierAccess);
     setSortOrder(plan.sortOrder);
+    setCreateRazorpayPlan(false); // Don't re-create on edit
     setShowForm(true);
   }
 
   async function handleSubmit() {
     setSubmitting(true);
-    const body = {
+    const body: Record<string, unknown> = {
       name,
-      appleProductId,
+      appleProductId: appleProductId || null,
       weeklyCredits,
       priceInr: Math.round(priceRupees * 100),
       tierAccess,
       sortOrder,
     };
+
+    if (!editing) {
+      body.createRazorpayPlan = createRazorpayPlan;
+    }
 
     try {
       if (editing) {
@@ -87,7 +95,11 @@ export default function AdminPricingPage() {
         toast.success("Plan updated");
       } else {
         await adminApi.createSubscriptionPlan(body);
-        toast.success("Plan created");
+        toast.success(
+          createRazorpayPlan
+            ? "Plan created with Razorpay plan"
+            : "Plan created"
+        );
       }
       resetForm();
       await loadPlans();
@@ -110,6 +122,19 @@ export default function AdminPricingPage() {
     }
   }
 
+  async function handleCreateRazorpayPlan(planId: string) {
+    setCreatingRzpFor(planId);
+    try {
+      await adminApi.createRazorpayPlan(planId);
+      toast.success("Razorpay plan created successfully");
+      await loadPlans();
+    } catch {
+      toast.error("Failed to create Razorpay plan");
+    } finally {
+      setCreatingRzpFor(null);
+    }
+  }
+
   function toggleTier(tier: string) {
     setTierAccess((prev) =>
       prev.includes(tier) ? prev.filter((t) => t !== tier) : [...prev, tier]
@@ -119,7 +144,7 @@ export default function AdminPricingPage() {
   if (loading) {
     return (
       <div>
-        <PageHeader title="Subscription Plans" description="Manage Apple Auto-Renewable Subscription plans" />
+        <PageHeader title="Subscription Plans" description="Manage subscription plans for Apple and Razorpay" />
         <LoadingState message="Loading subscription plans..." />
       </div>
     );
@@ -129,7 +154,7 @@ export default function AdminPricingPage() {
     <div>
       <PageHeader
         title="Subscription Plans"
-        description="Manage Apple Auto-Renewable Subscription plans"
+        description="Manage subscription plans for Apple (iOS) and Razorpay (Web)"
         actions={
           <Button onClick={() => { resetForm(); setShowForm(true); }}>
             <Plus className="mr-2 h-4 w-4" /> Add Plan
@@ -168,23 +193,51 @@ export default function AdminPricingPage() {
               </div>
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
+              {/* Provider IDs */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                     Apple Product ID
                   </p>
                   <code className="mt-0.5 block text-xs text-foreground/80">
-                    {plan.appleProductId}
+                    {plan.appleProductId || <span className="text-muted-foreground italic">Not set</span>}
                   </code>
                 </div>
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Razorpay Plan ID
+                  </p>
+                  {plan.razorpayPlanId ? (
+                    <code className="mt-0.5 flex items-center gap-1 text-xs text-foreground/80">
+                      <CheckCircle2 className="h-3 w-3 text-emerald-500 shrink-0" />
+                      {plan.razorpayPlanId}
+                    </code>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="mt-1 h-7 text-xs"
+                      disabled={creatingRzpFor === plan.id}
+                      onClick={() => handleCreateRazorpayPlan(plan.id)}
+                    >
+                      {creatingRzpFor === plan.id ? (
+                        <><Loader2 className="mr-1 h-3 w-3 animate-spin" /> Creating…</>
+                      ) : (
+                        <><CreditCard className="mr-1 h-3 w-3" /> Create</>
+                      )}
+                    </Button>
+                  )}
+                </div>
+              </div>
+
+              {/* Credits & Price */}
+              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                     Weekly Credits
                   </p>
                   <p className="mt-0.5 text-lg font-semibold">{plan.weeklyCredits}</p>
                 </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                     Price
@@ -193,6 +246,9 @@ export default function AdminPricingPage() {
                     {"\u20B9"}{(plan.priceInr / 100).toFixed(0)}
                   </p>
                 </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                     Subscribers
@@ -202,6 +258,7 @@ export default function AdminPricingPage() {
                   </p>
                 </div>
               </div>
+
               <div>
                 <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
                   Tier Access
@@ -235,7 +292,7 @@ export default function AdminPricingPage() {
         title={editing ? "Edit Subscription Plan" : "New Subscription Plan"}
         description={editing
           ? "Update the plan details below. Changes will apply to new subscribers."
-          : "Configure a new Apple Auto-Renewable Subscription plan."
+          : "Configure a new subscription plan for Apple (iOS) and/or Razorpay (Web)."
         }
         onSubmit={handleSubmit}
         submitLabel={editing ? "Update Plan" : "Create Plan"}
@@ -251,12 +308,11 @@ export default function AdminPricingPage() {
               required
             />
           </FormField>
-          <FormField label="Apple Product ID" required description="The identifier from App Store Connect">
+          <FormField label="Apple Product ID" description="The identifier from App Store Connect (optional for web-only plans)">
             <Input
               value={appleProductId}
               onChange={(e) => setAppleProductId(e.target.value)}
               placeholder="com.example.starter.weekly"
-              required
             />
           </FormField>
         </div>
@@ -305,6 +361,21 @@ export default function AdminPricingPage() {
             ))}
           </div>
         </FormField>
+
+        {/* Razorpay plan creation toggle — only for new plans */}
+        {!editing && (
+          <FormField label="Razorpay (Web)" description="Automatically create a Razorpay plan for web payments">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={createRazorpayPlan}
+                onChange={(e) => setCreateRazorpayPlan(e.target.checked)}
+                className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+              />
+              <span className="text-sm">Also create Razorpay plan</span>
+            </label>
+          </FormField>
+        )}
       </FormDialog>
 
       {/* Delete Confirmation */}

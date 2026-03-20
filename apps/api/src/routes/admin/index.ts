@@ -260,7 +260,7 @@ router.delete(
 
 const createSubscriptionPlanSchema = z.object({
   name: z.string().min(2).max(100).trim(),
-  appleProductId: z.string().min(1).max(200),
+  appleProductId: z.string().max(200).optional().nullable(),
   googleProductId: z.string().max(200).optional().nullable(),
   weeklyCredits: z.number().int().min(1),
   tierAccess: z.array(z.enum(["BASIC", "STANDARD", "PREMIUM"])).min(1),
@@ -268,6 +268,7 @@ const createSubscriptionPlanSchema = z.object({
   sortOrder: z.number().int().min(0).optional(),
   features: z.array(z.string()).optional().nullable(),
   isActive: z.boolean().optional(),
+  createRazorpayPlan: z.boolean().optional(),
 });
 
 const updateSubscriptionPlanSchema = createSubscriptionPlanSchema.partial();
@@ -302,6 +303,13 @@ router.delete(
   "/subscription-plans/:id",
   requireAdminAccess("subscriptions.write"),
   subscriptionPlanController.delete.bind(subscriptionPlanController)
+);
+
+// Create Razorpay plan for an existing subscription plan
+router.post(
+  "/subscription-plans/:id/razorpay-plan",
+  requireAdminAccess("subscriptions.write"),
+  subscriptionPlanController.createRazorpayPlanForExisting.bind(subscriptionPlanController)
 );
 
 // Analytics & Dashboard 
@@ -462,9 +470,11 @@ import type { Request, Response, NextFunction } from "express";
 
 /** Allowlist of valid system config keys — prevents arbitrary key injection */
 const ALLOWED_SYSTEM_CONFIG_KEYS = new Set([
-  "cost_warning_threshold",
-  "cost_critical_threshold",
-  "cost_emergency_threshold",
+  "daily_ai_budget_cents",
+  "cost_warning_threshold_percent",
+  "cost_critical_threshold_percent",
+  "cost_emergency_threshold_percent",
+  "daily_generation_cap",
   "daily_generation_limit",
   "concurrent_job_limit",
   "maintenance_mode",

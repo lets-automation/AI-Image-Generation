@@ -307,7 +307,7 @@ model Download {
 model SubscriptionPlan {
   id              String        @id @default(cuid())
   name            String                               // "Starter", "Pro", "Premium"
-  appleProductId  String        @unique                // Apple IAP product ID
+  appleProductId  String?       @unique                // Apple IAP product ID (optional for web-only plans)
   googleProductId String?       @unique                // Future: Google Play product ID
   razorpayPlanId  String?       @unique                // Razorpay plan ID (for web)
   weeklyCredits   Int                                  // Credits granted per renewal

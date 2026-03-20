@@ -167,9 +167,9 @@ class AnalyticsService {
         where: {
           key: {
             in: [
-              "cost_warning_threshold",
-              "cost_critical_threshold",
-              "cost_emergency_threshold",
+              "cost_warning_threshold_percent",
+              "cost_critical_threshold_percent",
+              "cost_emergency_threshold_percent",
             ],
           },
         },
@@ -178,9 +178,9 @@ class AnalyticsService {
       for (const cfg of configs) {
         const val = parseFloat(String(cfg.value));
         if (isNaN(val)) continue;
-        if (cfg.key === "cost_warning_threshold") warningThreshold = val;
-        if (cfg.key === "cost_critical_threshold") criticalThreshold = val;
-        if (cfg.key === "cost_emergency_threshold") emergencyThreshold = val;
+        if (cfg.key === "cost_warning_threshold_percent") warningThreshold = val;
+        if (cfg.key === "cost_critical_threshold_percent") criticalThreshold = val;
+        if (cfg.key === "cost_emergency_threshold_percent") emergencyThreshold = val;
       }
     } catch {
       // Use defaults

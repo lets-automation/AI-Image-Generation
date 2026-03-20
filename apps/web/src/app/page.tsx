@@ -1,7 +1,33 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Sparkles } from "lucide-react";
+import { Sparkles, Loader2 } from "lucide-react";
 
 export default function HomePage() {
+  const router = useRouter();
+  const [checking, setChecking] = useState(true);
+
+  useEffect(() => {
+    const refreshToken = localStorage.getItem("ep_refresh_token");
+    if (refreshToken) {
+      // User has a session — redirect to dashboard
+      router.replace("/posters");
+    } else {
+      setChecking(false);
+    }
+  }, [router]);
+
+  // Show a brief loading state while checking auth
+  if (checking) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-gray-900 via-primary-950 to-gray-900">
+        <Loader2 className="h-8 w-8 animate-spin text-white/60" />
+      </div>
+    );
+  }
+
   return (
     <div className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-gradient-to-br from-gray-900 via-primary-950 to-gray-900">
       {/* Decorative background blurs */}
