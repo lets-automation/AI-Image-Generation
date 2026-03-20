@@ -109,7 +109,7 @@ export class RazorpayService {
       order = await razorpay.orders.create({
         amount: plan.priceInr, // Already in paise
         currency: "INR",
-        receipt: `sub_${userId}_${Date.now()}`,
+        receipt: `sub_${userId.slice(-8)}_${Date.now()}`,
         notes: {
           userId,
           planId: plan.id,
