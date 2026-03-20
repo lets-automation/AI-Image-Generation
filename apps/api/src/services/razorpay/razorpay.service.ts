@@ -13,7 +13,7 @@ import { config } from "../../config/index.js";
 import { credentialService } from "../credential.service.js";
 import { prisma } from "../../config/database.js";
 import { logger } from "../../utils/logger.js";
-import { BadRequestError, NotFoundError } from "../../utils/errors.js";
+import { BadRequestError, NotFoundError, ServiceUnavailableError } from "../../utils/errors.js";
 import { subscriptionService } from "../subscription.service.js";
 
 // ─── Razorpay Instance ───────────────────────────────────
@@ -27,8 +27,12 @@ async function getRazorpay(): Promise<InstanceType<typeof Razorpay>> {
   const keySecret = await credentialService.getCredentialOrEnv("razorpay_key_secret");
 
   if (!keyId || !keySecret) {
-    throw new Error(
-      "Razorpay configuration incomplete. Set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET."
+    logger.error(
+      { hasKeyId: !!keyId, hasKeySecret: !!keySecret },
+      "Razorpay credentials missing"
+    );
+    throw new ServiceUnavailableError(
+      "Payment service is not configured. Please contact support."
     );
   }
 
@@ -100,16 +104,34 @@ export class RazorpayService {
     const razorpay = await getRazorpay();
     const keyId = await credentialService.getCredentialOrEnv("razorpay_key_id");
 
-    const order = await razorpay.orders.create({
-      amount: plan.priceInr, // Already in paise
-      currency: "INR",
-      receipt: `sub_${userId}_${Date.now()}`,
-      notes: {
-        userId,
-        planId: plan.id,
-        planName: plan.name,
-      },
-    });
+    let order;
+    try {
+      order = await razorpay.orders.create({
+        amount: plan.priceInr, // Already in paise
+        currency: "INR",
+        receipt: `sub_${userId}_${Date.now()}`,
+        notes: {
+          userId,
+          planId: plan.id,
+          planName: plan.name,
+        },
+      });
+    } catch (rzpError: any) {
+      logger.error(
+        {
+          userId,
+          planId: plan.id,
+          amount: plan.priceInr,
+          razorpayError: rzpError?.message || rzpError,
+          statusCode: rzpError?.statusCode,
+          errorDescription: rzpError?.error?.description,
+        },
+        "Razorpay order creation failed"
+      );
+      throw new ServiceUnavailableError(
+        rzpError?.error?.description || "Payment service temporarily unavailable. Please try again."
+      );
+    }
 
     logger.info(
       { userId, planId: plan.id, orderId: order.id, amount: plan.priceInr },
