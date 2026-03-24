@@ -8,7 +8,6 @@ import { globalLimiter } from "./middleware/rateLimiter.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 import { apiRoutes } from "./routes/index.js";
 import { initCloudinary } from "./config/cloudinary.js";
-import swaggerUi from "swagger-ui-express";
 import { swaggerSpec } from "./config/swagger.js";
 
 const app = express();
@@ -63,11 +62,31 @@ app.use(globalLimiter);
 initCloudinary();
 
 // ─── API Documentation ──────────────────────────────────
-// Served under /api/v1/docs so Nginx proxy_pass for /api/v1 covers it
-app.use("/api/v1/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
-  customSiteTitle: "EP-Product API Docs",
-  customCss: ".swagger-ui .topbar { display: none }",
-}));
+// Serve Swagger UI via CDN (Nginx intercepts local .css/.js as static files)
+app.get("/api/v1/docs", (_req, res) => {
+  res.send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>EP-Product API Docs</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css" />
+  <style>body { margin: 0; } .swagger-ui .topbar { display: none; }</style>
+</head>
+<body>
+  <div id="swagger-ui"></div>
+  <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-standalone-preset.js"></script>
+  <script>
+    SwaggerUIBundle({
+      url: '/api/v1/docs.json',
+      dom_id: '#swagger-ui',
+      presets: [SwaggerUIBundle.presets.apis, SwaggerUIStandalonePreset],
+      layout: 'StandaloneLayout',
+    });
+  </script>
+</body>
+</html>`);
+});
 app.get("/api/v1/docs.json", (_req, res) => {
   res.setHeader("Content-Type", "application/json");
   res.send(swaggerSpec);

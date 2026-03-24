@@ -7,6 +7,7 @@ set -e
 APP_DIR="/home/1078258.cloudwaysapps.com/mvrnhpdntm/public_html"
 WEB_DIR="$APP_DIR/apps/web"
 API_DIR="$APP_DIR/apps/api"
+PM2="/home/master/.nvm/versions/node/v20.20.1/lib/node_modules/pm2/bin/pm2"
 
 echo "🚀 Starting deployment..."
 
@@ -39,8 +40,8 @@ cp -r "$WEB_DIR/.next/static" "$APP_DIR/_next/static"
 
 # 6. Restart PM2 processes
 echo "🔄 Restarting services..."
-pm2 restart ep-api
-pm2 restart ep-web
+$PM2 restart ep-api
+$PM2 restart ep-web
 
 echo "✅ Deployment complete!"
 echo "   Test: curl -o /dev/null -w '%{http_code}\n' https://aiimagegenerator.design/"
