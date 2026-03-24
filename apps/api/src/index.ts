@@ -63,11 +63,12 @@ app.use(globalLimiter);
 initCloudinary();
 
 // ─── API Documentation ──────────────────────────────────
-app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
+// Served under /api/v1/docs so Nginx proxy_pass for /api/v1 covers it
+app.use("/api/v1/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
   customSiteTitle: "EP-Product API Docs",
   customCss: ".swagger-ui .topbar { display: none }",
 }));
-app.get("/api/docs.json", (_req, res) => {
+app.get("/api/v1/docs.json", (_req, res) => {
   res.setHeader("Content-Type", "application/json");
   res.send(swaggerSpec);
 });
