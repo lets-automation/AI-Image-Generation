@@ -72,6 +72,8 @@ export interface CategoryItem {
   fieldSchemas: FieldSchemaItem[];
   children?: CategoryItem[];
   _count?: { templates: number };
+  promoted?: boolean;
+  festivalName?: string | null;
 }
 
 // ─── Category detail (with field schemas fetched separately) ─
@@ -89,6 +91,14 @@ export interface FestivalItem {
   visibilityDays: number;
   isActive: boolean;
   metadata: Record<string, unknown> | null;
+  promotedCategories?: Array<{
+    id: string;
+    categoryId: string;
+    sortOrder: number;
+    promotionStartDays: number | null;
+    promotionEndDays: number;
+    category: { id: string; name: string; slug: string; contentType: string };
+  }>;
 }
 
 // ─── API calls ──────────────────────────────────────────

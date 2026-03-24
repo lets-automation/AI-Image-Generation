@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
 import { categoryService } from "../services/category.service.js";
+import { festivalService } from "../services/festival.service.js";
 
 export class CategoryController {
   // Public
@@ -14,7 +15,29 @@ export class CategoryController {
       };
 
       const result = await categoryService.list(query);
-      res.json({ success: true, data: result.data, meta: result.meta });
+
+      // Augment with festival promotion data
+      const promoMap = await festivalService.getPromotedCategoryMap(
+        query.contentType as "EVENT" | "POSTER" | undefined
+      );
+
+      const augmented = result.data.map((cat: any) => ({
+        ...cat,
+        promoted: promoMap.has(cat.id),
+        festivalName: promoMap.get(cat.id)?.festivalName ?? null,
+      }));
+
+      // Sort: promoted first (by sortOrder), then non-promoted (by original sortOrder)
+      augmented.sort((a: any, b: any) => {
+        if (a.promoted && !b.promoted) return -1;
+        if (!a.promoted && b.promoted) return 1;
+        if (a.promoted && b.promoted) {
+          return (promoMap.get(a.id)?.sortOrder ?? 0) - (promoMap.get(b.id)?.sortOrder ?? 0);
+        }
+        return 0; // keep original order for non-promoted
+      });
+
+      res.json({ success: true, data: augmented, meta: result.meta });
     } catch (err) { next(err); }
   }
 

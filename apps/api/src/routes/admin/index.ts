@@ -160,6 +160,13 @@ const festivalListQuery = z.object({
   upcoming: z.coerce.boolean().optional(),
 });
 
+const promotionConfigItemSchema = z.object({
+  categoryId: z.string().cuid(),
+  sortOrder: z.number().int().min(0).optional(),
+  promotionStartDays: z.number().int().min(1).max(90).nullable().optional(),
+  promotionEndDays: z.number().int().min(0).max(30).optional(),
+});
+
 const createFestivalSchema = z.object({
   name: z.string().min(2).max(200).trim(),
   description: z.string().max(500).optional(),
@@ -173,10 +180,16 @@ const createFestivalSchema = z.object({
       tags: z.array(z.string()).optional(),
     })
     .optional(),
+  categoryIds: z.array(z.string().cuid()).optional(),
+  promotionConfig: z.array(promotionConfigItemSchema).optional(),
 });
 
 const updateFestivalSchema = createFestivalSchema.partial().extend({
   isActive: z.boolean().optional(),
+});
+
+const setFestivalCategoriesSchema = z.object({
+  categories: z.array(promotionConfigItemSchema),
 });
 
 router.get(
@@ -212,7 +225,26 @@ router.delete(
   festivalController.delete.bind(festivalController)
 );
 
-// Model Pricing 
+// Festival-Category promotion links
+router.put(
+  "/festivals/:id/categories",
+  requireAdminAccess("festivals.write"),
+  validate({ body: setFestivalCategoriesSchema }),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { festivalService } = await import("../../services/festival.service.js");
+      await festivalService.syncCategories(
+        req.params.id as string,
+        undefined,
+        req.body.categories
+      );
+      const festival = await festivalService.getById(req.params.id as string);
+      res.json({ success: true, data: festival });
+    } catch (err) { next(err); }
+  }
+);
+
+// Model Pricing
 
 const createModelPricingSchema = z.object({
   qualityTier: z.enum(["BASIC", "STANDARD", "PREMIUM"]),

@@ -118,6 +118,10 @@ export default function PostersPage() {
             </div>
           </div>
 
+          {festivals.length > 0 && (
+            <FestivalBanner festivals={festivals} />
+          )}
+
           {/* Dynamic Category Row */}
           <div className="mb-6 flex items-center justify-between px-1">
             <span className="text-[15px] font-medium text-gray-800 flex items-center gap-1">

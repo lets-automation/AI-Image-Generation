@@ -205,6 +205,8 @@ export const adminApi = {
   updateFestival: (id: string, body: unknown) =>
     patch<unknown>(`/admin/festivals/${id}`, body),
   deleteFestival: (id: string) => del(`/admin/festivals/${id}`),
+  setFestivalCategories: (id: string, categories: Array<{ categoryId: string; sortOrder?: number; promotionStartDays?: number | null; promotionEndDays?: number }>) =>
+    put<unknown>(`/admin/festivals/${id}/categories`, { categories }),
 
   // Model Pricing
   listModelPricing: (tier?: string) =>

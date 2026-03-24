@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { Plus, MoreHorizontal, Pencil, Power, Trash2 } from "lucide-react";
+import { Plus, MoreHorizontal, Pencil, Power, Trash2, X, Flame } from "lucide-react";
 
 type FestivalVisibility = "live" | "upcoming" | "past" | "disabled";
 
@@ -52,6 +52,15 @@ function FestivalStatusBadge({ festival }: { festival: FestivalData }) {
   );
 }
 
+interface PromotedCategoryLink {
+  id: string;
+  categoryId: string;
+  sortOrder: number;
+  promotionStartDays: number | null;
+  promotionEndDays: number;
+  category: { id: string; name: string; slug: string; contentType: string };
+}
+
 interface FestivalData {
   id: string;
   name: string;
@@ -61,6 +70,14 @@ interface FestivalData {
   visibilityDays: number;
   isActive: boolean;
   metadata: { region?: string[]; religion?: string; tags?: string[] } | null;
+  promotedCategories?: PromotedCategoryLink[];
+}
+
+interface CategoryOption {
+  id: string;
+  name: string;
+  slug: string;
+  contentType: string;
 }
 
 export default function AdminFestivalsPage() {
@@ -76,6 +93,11 @@ export default function AdminFestivalsPage() {
   const [contentType, setContentType] = useState<"EVENT" | "POSTER">("EVENT");
   const [visibilityDays, setVisibilityDays] = useState(7);
 
+  // Category promotion state
+  const [allCategories, setAllCategories] = useState<CategoryOption[]>([]);
+  const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
+  const [categoriesLoading, setCategoriesLoading] = useState(false);
+
   const loadFestivals = useCallback(async () => {
     try {
       setLoading(true);
@@ -88,11 +110,31 @@ export default function AdminFestivalsPage() {
     }
   }, []);
 
+  const loadCategories = useCallback(async (ct: "EVENT" | "POSTER") => {
+    try {
+      setCategoriesLoading(true);
+      const data = await adminApi.listCategories({ contentType: ct, limit: 50 });
+      setAllCategories(data as CategoryOption[]);
+    } catch (err) {
+      console.error("Failed to load categories for festival form:", err);
+    } finally {
+      setCategoriesLoading(false);
+    }
+  }, []);
+
   useEffect(() => { loadFestivals(); }, [loadFestivals]);
+
+  // Load categories when content type changes in form
+  useEffect(() => {
+    if (showForm) {
+      loadCategories(contentType);
+    }
+  }, [showForm, contentType, loadCategories]);
 
   function resetForm() {
     setName(""); setDescription(""); setDate("");
     setContentType("EVENT"); setVisibilityDays(7);
+    setSelectedCategoryIds([]);
     setEditId(null); setShowForm(false);
   }
 
@@ -103,11 +145,29 @@ export default function AdminFestivalsPage() {
     setDate(f.date.split("T")[0]);
     setContentType(f.contentType as "EVENT" | "POSTER");
     setVisibilityDays(f.visibilityDays);
+    setSelectedCategoryIds(
+      f.promotedCategories?.map((pc) => pc.categoryId) ?? []
+    );
     setShowForm(true);
   }
 
+  function toggleCategory(catId: string) {
+    setSelectedCategoryIds((prev) =>
+      prev.includes(catId)
+        ? prev.filter((id) => id !== catId)
+        : [...prev, catId]
+    );
+  }
+
   async function handleSubmit() {
-    const body = { name, description: description || undefined, date, contentType, visibilityDays };
+    const body = {
+      name,
+      description: description || undefined,
+      date,
+      contentType,
+      visibilityDays,
+      categoryIds: selectedCategoryIds,
+    };
     try {
       if (editId) {
         await adminApi.updateFestival(editId, body);
@@ -174,6 +234,26 @@ export default function AdminFestivalsPage() {
       cell: (row) => <ContentTypeBadge type={row.contentType as "EVENT" | "POSTER"} />,
     },
     {
+      key: "categories",
+      header: "Promoted Categories",
+      cell: (row) => {
+        const cats = row.promotedCategories ?? [];
+        if (cats.length === 0) return <span className="text-xs text-muted-foreground">None</span>;
+        return (
+          <div className="flex flex-wrap gap-1">
+            {cats.slice(0, 3).map((pc) => (
+              <Badge key={pc.categoryId} variant="secondary" className="text-xs">
+                {pc.category.name}
+              </Badge>
+            ))}
+            {cats.length > 3 && (
+              <Badge variant="outline" className="text-xs">+{cats.length - 3}</Badge>
+            )}
+          </div>
+        );
+      },
+    },
+    {
       key: "visibility",
       header: "Window",
       cell: (row) => {
@@ -223,11 +303,15 @@ export default function AdminFestivalsPage() {
     },
   ];
 
+  const filteredCategories = allCategories.filter(
+    (c) => c.contentType === contentType
+  );
+
   return (
     <div>
       <PageHeader
         title="Festival Calendar"
-        description="Manage festivals and their visibility windows"
+        description="Manage festivals, their visibility windows, and promoted categories"
         actions={
           <Button onClick={() => { resetForm(); setShowForm(true); }}>
             <Plus className="mr-2 h-4 w-4" /> Add Festival
@@ -246,8 +330,8 @@ export default function AdminFestivalsPage() {
         onOpenChange={(open) => { if (!open) resetForm(); }}
         title={editId ? "Edit Festival" : "New Festival"}
         description={editId
-          ? "Update the festival details. Templates associated with this festival will continue to use it."
-          : "Add a new festival or occasion to the calendar. Templates in matching categories will become available to users within the visibility window around this date."
+          ? "Update the festival details and promoted categories."
+          : "Add a new festival. Select categories to promote — they'll appear at the top of user browsing during the visibility window."
         }
         onSubmit={handleSubmit}
         submitLabel={editId ? "Update Festival" : "Create Festival"}
@@ -261,7 +345,7 @@ export default function AdminFestivalsPage() {
           </FormField>
         </div>
         <div className="grid grid-cols-3 gap-4">
-          <FormField label="Content Type" description="Determines which template categories this festival applies to.">
+          <FormField label="Content Type" description="Determines which tab (Events/Posters) this festival applies to.">
             <Select value={contentType} onValueChange={(v) => setContentType(v as "EVENT" | "POSTER")}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
@@ -270,7 +354,7 @@ export default function AdminFestivalsPage() {
               </SelectContent>
             </Select>
           </FormField>
-          <FormField label="Visibility (days)" description="Number of days before the festival date when templates become visible to users. Example: 7 means templates appear 1 week before.">
+          <FormField label="Visibility (days)" description="Days before the festival when promotion starts. Categories will appear at top during this window.">
             <Input type="number" min={1} max={90} value={visibilityDays}
               onChange={(e) => setVisibilityDays(+e.target.value)} placeholder="e.g. 7" />
           </FormField>
@@ -278,13 +362,77 @@ export default function AdminFestivalsPage() {
             <Input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="e.g. Festival of lights" />
           </FormField>
         </div>
+
+        {/* Category Promotion Picker */}
+        <FormField
+          label="Promoted Categories"
+          description={`Select categories to show at the top of the ${contentType === "EVENT" ? "Events" : "Posters"} page during this festival's visibility window.`}
+        >
+          <div className="space-y-3">
+            {/* Selected categories */}
+            {selectedCategoryIds.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {selectedCategoryIds.map((catId) => {
+                  const cat = allCategories.find((c) => c.id === catId);
+                  return (
+                    <Badge
+                      key={catId}
+                      variant="secondary"
+                      className="flex items-center gap-1.5 py-1 pl-2 pr-1 text-sm"
+                    >
+                      <Flame className="h-3 w-3 text-orange-500" />
+                      {cat?.name ?? catId}
+                      <button
+                        type="button"
+                        onClick={() => toggleCategory(catId)}
+                        className="ml-0.5 rounded-full p-0.5 hover:bg-muted"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </Badge>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Available categories grid */}
+            <div className="max-h-40 overflow-y-auto rounded-lg border border-dashed border-gray-200 p-2">
+              {categoriesLoading ? (
+                <p className="py-4 text-center text-xs text-muted-foreground">Loading categories...</p>
+              ) : filteredCategories.length === 0 ? (
+                <p className="py-4 text-center text-xs text-muted-foreground">No categories found for {contentType}</p>
+              ) : (
+                <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+                  {filteredCategories.map((cat) => {
+                    const isSelected = selectedCategoryIds.includes(cat.id);
+                    return (
+                      <button
+                        key={cat.id}
+                        type="button"
+                        onClick={() => toggleCategory(cat.id)}
+                        className={cn(
+                          "rounded-lg border px-3 py-2 text-left text-xs transition-all",
+                          isSelected
+                            ? "border-primary bg-primary/5 font-medium text-primary"
+                            : "border-gray-200 text-gray-600 hover:border-gray-300 hover:bg-gray-50"
+                        )}
+                      >
+                        {cat.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        </FormField>
       </FormDialog>
 
       <ConfirmDialog
         open={!!deleteTarget}
         onOpenChange={() => setDeleteTarget(null)}
         title="Delete Festival"
-        description="This action cannot be undone. The festival will be permanently removed."
+        description="This action cannot be undone. The festival and its category links will be permanently removed."
         onConfirm={handleDelete}
         confirmLabel="Delete"
         variant="destructive"

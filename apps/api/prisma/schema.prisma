@@ -213,6 +213,7 @@ model Category {
   children     Category[]   @relation("CategoryHierarchy")
   templates    Template[]
   fieldSchemas FieldSchema[]
+  festivalLinks FestivalCategory[]
 
   @@index([contentType, isActive])
   @@index([parentId])
@@ -411,9 +412,28 @@ model FestivalCalendar {
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 
+  promotedCategories FestivalCategory[]
+
   @@index([date])
   @@index([isActive, date])
   @@map("festival_calendar")
+}
+
+model FestivalCategory {
+  id                 String   @id @default(cuid())
+  festivalId         String
+  categoryId         String
+  sortOrder          Int      @default(0)
+  promotionStartDays Int?
+  promotionEndDays   Int      @default(1)
+  createdAt          DateTime @default(now())
+
+  festival FestivalCalendar @relation(fields: [festivalId], references: [id], onDelete: Cascade)
+  category Category         @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([festivalId, categoryId])
+  @@index([categoryId])
+  @@map("festival_categories")
 }
 
 model ModelPricing {

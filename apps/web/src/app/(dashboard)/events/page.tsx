@@ -113,6 +113,10 @@ export default function EventsPage() {
             </div>
           </div>
 
+          {festivals.length > 0 && (
+            <FestivalBanner festivals={festivals} />
+          )}
+
           <div className="mb-6">
             <CategoryFilter
               categories={categories}
