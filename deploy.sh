@@ -15,24 +15,29 @@ echo "📦 Installing dependencies..."
 cd "$APP_DIR"
 npm install
 
-# 2. Build API
-echo "🔧 Building API..."
+# 2. Prisma: generate client + apply migrations
+echo "🗄️ Running Prisma generate & migrate..."
 cd "$API_DIR"
+npx prisma generate
+npx prisma migrate deploy
+
+# 3. Build API
+echo "🔧 Building API..."
 npm run build
 
-# 3. Build Web
+# 4. Build Web
 echo "🔧 Building Web..."
 cd "$WEB_DIR"
 rm -rf .next
 npm run build
 
-# 4. Copy Next.js static files to public_html so Nginx can serve them
+# 5. Copy Next.js static files to public_html so Nginx can serve them
 echo "📂 Syncing Next.js static files for Nginx..."
 rm -rf "$APP_DIR/_next"
 mkdir -p "$APP_DIR/_next"
 cp -r "$WEB_DIR/.next/static" "$APP_DIR/_next/static"
 
-# 5. Restart PM2 processes
+# 6. Restart PM2 processes
 echo "🔄 Restarting services..."
 pm2 restart ep-api
 pm2 restart ep-web
