@@ -12,8 +12,6 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Settings2, Search } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { useAuthStore } from "@/stores/auth.store";
-import { PublicFeed } from "@/components/templates/PublicFeed";
 
 export default function PostersPage() {
   const {
@@ -69,8 +67,6 @@ export default function PostersPage() {
     ? categories.find((c) => c.id === categoryId)?.name || "All"
     : "All";
 
-  const { user } = useAuthStore();
-  const canGenerate = user?.canGenerate;
 
   return (
     <div>
@@ -80,20 +76,12 @@ export default function PostersPage() {
       <div className="mb-6 hidden md:block">
         <h1 className="text-2xl font-bold">Posters</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          {canGenerate ? "Browse poster templates for festivals, greetings, and social media" : "Browse recent community poster creations"}
+          Browse poster templates for festivals, greetings, and social media
         </p>
       </div>
 
-      {!canGenerate ? (
-        <div className="mt-8">
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-xl font-bold tracking-tight">Community Showcase</h2>
-            <p className="text-sm text-muted-foreground">Recent public creations</p>
-          </div>
-          <PublicFeed contentType="POSTER" />
-        </div>
-      ) : (
-        <>
+      <>
+
           <div className="mb-4 flex flex-col items-center gap-4 md:flex-row md:justify-between">
             <Tabs
               value={aspectRatio || "SQUARE"}
@@ -164,7 +152,7 @@ export default function PostersPage() {
               {categoryId === null && !searchQuery ? (
                 <div className="space-y-8">
                   {/* Custom Upload Banner */}
-                  {canGenerate && (
+                  {(
                     <div className="flex flex-col gap-6 overflow-hidden rounded-2xl bg-gradient-to-br from-gray-900 via-primary-950 to-accent-950 p-8 shadow-xl ring-1 ring-white/10 sm:flex-row sm:items-center sm:justify-between">
                       <div className="relative z-10 flex-1">
                         <h2 className="text-2xl font-bold tracking-tight text-white">Got a custom photo?</h2>
@@ -214,7 +202,7 @@ export default function PostersPage() {
               ) : (
                 <>
                   <div className="grid grid-cols-2 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                    {canGenerate && <ImageUploadCard contentType="POSTER" />}
+                    <ImageUploadCard contentType="POSTER" />
                     {templates.map((template) => (
                       <TemplateCard key={template.id} template={template} contentType="POSTER" />
                     ))}
@@ -250,7 +238,6 @@ export default function PostersPage() {
             </p>
           )}
         </>
-      )}
     </div>
   );
 }

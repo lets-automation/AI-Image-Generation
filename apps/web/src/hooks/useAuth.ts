@@ -39,6 +39,20 @@ export function useRequireAuth() {
 }
 
 /**
+ * Hook for pages that allow unauthenticated access.
+ * Initializes auth (restores session if available) but does NOT redirect.
+ */
+export function useOptionalAuth() {
+  const { isAuthenticated, isInitialized, initialize } = useAuthStore();
+
+  useEffect(() => {
+    initialize();
+  }, [initialize]);
+
+  return { isReady: isInitialized, isAuthenticated };
+}
+
+/**
  * Hook to protect admin routes.
  * Redirects to /events if not admin.
  */

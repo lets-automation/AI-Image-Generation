@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { authenticate } from "../middleware/auth.js";
+import { authenticate, optionalAuth } from "../middleware/auth.js";
 import { validate } from "../middleware/validation.js";
 import {
   generationLimiter,
@@ -18,7 +18,15 @@ import type { Request, Response, NextFunction } from "express";
 
 const router = Router();
 
-// All generation routes require authentication
+// GET /api/v1/generations/public — List all public generations (no auth required)
+router.get(
+  "/public",
+  optionalAuth,
+  validate({ query: generationListQuery }),
+  (req, res, next) => generationController.listPublic(req, res, next)
+);
+
+// ── All routes below require authentication ──
 router.use(authenticate);
 
 // GET /api/v1/generations/limits — Get user's daily generation limits and remaining count
@@ -81,13 +89,6 @@ router.get(
 router.get(
   "/batch/:batchId",
   (req, res, next) => generationController.getBatch(req, res, next)
-);
-
-// GET /api/v1/generations/public — List all public generations
-router.get(
-  "/public",
-  validate({ query: generationListQuery }), // We can reuse generationListQuery
-  (req, res, next) => generationController.listPublic(req, res, next)
 );
 
 // GET /api/v1/generations/:id — Get single generation

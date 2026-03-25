@@ -4,6 +4,7 @@ import { useState, useRef } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useGenerationStore } from "@/stores/generation.store";
+import { useAuthStore } from "@/stores/auth.store";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Upload, X, AlertTriangle, Info } from "lucide-react";
@@ -103,6 +104,11 @@ export function ImageUploadCard({ contentType, variant = "vertical" }: ImageUplo
 
   function handleUseImage() {
     if (!uploadedFile || !preview) return;
+    const isAuthenticated = useAuthStore.getState().isAuthenticated;
+    if (!isAuthenticated) {
+      router.push("/login");
+      return;
+    }
     reset();
     setContentType(contentType);
     setUploadedImage(uploadedFile, preview);

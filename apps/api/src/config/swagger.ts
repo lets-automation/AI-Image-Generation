@@ -904,6 +904,7 @@ const options: swaggerJSDoc.Options = {
         get: {
           tags: ["Categories"],
           summary: "List categories with field schemas",
+          security: [],
           description: "Returns paginated categories. When a festival is active, promoted categories appear first with `promoted: true` and `festivalName`.",
           parameters: [
             { name: "contentType", in: "query", schema: { type: "string", enum: ["EVENT", "POSTER"] }, description: "Filter by content type" },
@@ -939,6 +940,7 @@ const options: swaggerJSDoc.Options = {
         get: {
           tags: ["Categories"],
           summary: "Get category by ID with field schemas and children",
+          security: [],
           parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
           responses: {
             200: {
@@ -953,6 +955,7 @@ const options: swaggerJSDoc.Options = {
         get: {
           tags: ["Categories"],
           summary: "Get field schemas for a category",
+          security: [],
           parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
           responses: {
             200: {
@@ -980,6 +983,7 @@ const options: swaggerJSDoc.Options = {
         get: {
           tags: ["Templates"],
           summary: "List templates (paginated)",
+          security: [],
           parameters: [
             { name: "contentType", in: "query", schema: { type: "string", enum: ["EVENT", "POSTER"] } },
             { name: "categoryId", in: "query", schema: { type: "string" } },
@@ -1012,6 +1016,7 @@ const options: swaggerJSDoc.Options = {
         get: {
           tags: ["Templates"],
           summary: "Get templates grouped by category (for homepage grid)",
+          security: [],
           description: "Returns categories with their templates embedded. Used for the homepage browsing experience where each category row shows a horizontal scroll of templates.",
           parameters: [
             { name: "contentType", in: "query", required: true, schema: { type: "string", enum: ["EVENT", "POSTER"] } },
@@ -1039,6 +1044,7 @@ const options: swaggerJSDoc.Options = {
         get: {
           tags: ["Templates"],
           summary: "Get template detail with safe zones and category field schemas",
+          security: [],
           parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
           responses: {
             200: {
@@ -1057,6 +1063,7 @@ const options: swaggerJSDoc.Options = {
         get: {
           tags: ["Festivals"],
           summary: "Get festivals currently in their visibility window",
+          security: [],
           description: "Returns festivals where `(date - visibilityDays) <= now <= date + 1 day`. Includes promoted category info.",
           parameters: [
             { name: "contentType", in: "query", schema: { type: "string", enum: ["EVENT", "POSTER"] } },
@@ -1083,6 +1090,7 @@ const options: swaggerJSDoc.Options = {
         get: {
           tags: ["Festivals"],
           summary: "Get festival by ID",
+          security: [],
           parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
           responses: {
             200: { description: "Festival detail", content: { "application/json": { schema: { type: "object", properties: { success: { type: "boolean" }, data: { $ref: "#/components/schemas/Festival" } } } } } },
@@ -1230,6 +1238,7 @@ const options: swaggerJSDoc.Options = {
         get: {
           tags: ["Generations"],
           summary: "List all public generations (community showcase)",
+          security: [],
           parameters: [
             { name: "page", in: "query", schema: { type: "integer", default: 1 } },
             { name: "limit", in: "query", schema: { type: "integer", default: 20, maximum: 50 } },
@@ -1396,6 +1405,7 @@ const options: swaggerJSDoc.Options = {
         get: {
           tags: ["Subscriptions"],
           summary: "List available subscription plans (for pricing display)",
+          security: [],
           responses: {
             200: {
               description: "Active subscription plans sorted by sortOrder",

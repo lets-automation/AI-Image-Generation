@@ -5,8 +5,10 @@ import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/stores/auth.store";
 import { apiClient } from "@/lib/api-client";
 import { LogOut } from "lucide-react";
+import { useRequireAuth } from "@/hooks/useAuth";
 
 export default function ProfilePage() {
+  const { isReady } = useRequireAuth();
   const router = useRouter();
   const { user, updateUser, logout } = useAuthStore();
 

@@ -4,8 +4,9 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/stores/auth.store";
+import { LogIn } from "lucide-react";
 
-const navItems = [
+const publicNavItems = [
   {
     label: "Events",
     href: "/events",
@@ -16,6 +17,9 @@ const navItems = [
     href: "/posters",
     icon: "M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z",
   },
+];
+
+const authNavItems = [
   {
     label: "Downloads",
     href: "/downloads",
@@ -36,7 +40,12 @@ const navItems = [
 export function Sidebar() {
   const pathname = usePathname();
   const user = useAuthStore((s) => s.user);
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const isAdmin = user?.role === "ADMIN" || user?.role === "SUPER_ADMIN" || !!user?.customRole;
+
+  const navItems = isAuthenticated
+    ? [...publicNavItems, ...authNavItems]
+    : publicNavItems;
 
   return (
     <aside className="fixed left-0 top-16 z-30 hidden h-[calc(100vh-4rem)] w-60 border-r border-gray-200 bg-white md:block">
@@ -105,6 +114,23 @@ export function Sidebar() {
               </svg>
               Admin Panel
             </Link>
+          </>
+        )}
+
+        {/* Login prompt for guests */}
+        {!isAuthenticated && (
+          <>
+            <div className="my-2 border-t border-gray-200" />
+            <Link
+              href="/login"
+              className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-primary-600 transition hover:bg-primary-50"
+            >
+              <LogIn className="h-5 w-5 flex-shrink-0" />
+              Login / Sign Up
+            </Link>
+            <p className="px-3 text-[11px] text-gray-400 leading-tight">
+              Sign in to generate images, download creatives, and access your subscription.
+            </p>
           </>
         )}
       </nav>

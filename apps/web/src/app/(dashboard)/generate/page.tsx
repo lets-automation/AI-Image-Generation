@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useGenerationStore, type GenerationState } from "@/stores/generation.store";
+import { useRequireAuth } from "@/hooks/useAuth";
 import { userApi, type TemplateDetail, type CategoryItem } from "@/lib/user-api";
 import { apiClient } from "@/lib/api-client";
 import {
@@ -348,6 +349,7 @@ import { ProcessingView, ResultView, type BatchResult } from "./batch-views";
 // ─── Main Page ──────────────────────────────────────────
 
 export default function GeneratePage() {
+  const { isReady } = useRequireAuth();
   const searchParams = useSearchParams();
   const router = useRouter();
   const store = useGenerationStore();

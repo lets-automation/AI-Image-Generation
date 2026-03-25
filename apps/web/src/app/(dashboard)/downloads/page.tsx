@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { apiClient } from "@/lib/api-client";
+import { useRequireAuth } from "@/hooks/useAuth";
 
 interface DownloadItem {
   id: string;
@@ -29,6 +30,7 @@ interface PaginationMeta {
 }
 
 export default function DownloadsPage() {
+  const { isReady } = useRequireAuth();
   const [downloads, setDownloads] = useState<DownloadItem[]>([]);
   const [generations, setGenerations] = useState<Array<{
     id: string;

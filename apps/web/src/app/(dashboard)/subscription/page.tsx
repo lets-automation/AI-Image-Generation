@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useSubscriptionStore } from "@/stores/subscription.store";
 import toast from "react-hot-toast";
 import Script from "next/script";
+import { useRequireAuth } from "@/hooks/useAuth";
 
 // Razorpay type declaration
 declare global {
@@ -37,6 +38,7 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 export default function SubscriptionPage() {
+  const { isReady } = useRequireAuth();
   const {
     status,
     plans,

@@ -2,13 +2,13 @@
 
 import { usePathname } from "next/navigation";
 import Link from "next/link";
-import { Menu, User, Crown } from "lucide-react";
+import { Menu, User, LogIn } from "lucide-react";
 import { useAuthStore } from "@/stores/auth.store";
 import { cn } from "@/lib/utils";
 
 export function Header() {
   const pathname = usePathname();
-  const { user } = useAuthStore();
+  const { user, isAuthenticated } = useAuthStore();
 
   const getTitle = () => {
     if (pathname.includes("/posters")) return "Posters";
@@ -36,14 +36,31 @@ export function Header() {
           </h1>
         </div>
 
-        {/* Right: Icons */}
+        {/* Right: Icons or Login/SignUp */}
         <div className="flex items-center gap-3">
-          <Link href="/profile" className="text-gray-600 hover:text-gray-900">
-            <User className="h-5 w-5" strokeWidth={2} />
-          </Link>
-          <Link href="/subscription" className="flex items-center justify-center p-1 rounded-full bg-yellow-50 text-yellow-500 hover:bg-yellow-100">
-            <Crown className="h-5 w-5 fill-yellow-400 text-yellow-500" />
-          </Link>
+          {isAuthenticated ? (
+            <>
+              <Link href="/profile" className="text-gray-600 hover:text-gray-900">
+                <User className="h-5 w-5" strokeWidth={2} />
+              </Link>
+            </>
+          ) : (
+            <>
+              <Link
+                href="/login"
+                className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-gray-700 transition hover:bg-gray-100"
+              >
+                <LogIn className="h-4 w-4" />
+                Login
+              </Link>
+              <Link
+                href="/register"
+                className="rounded-lg bg-primary-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-primary-700"
+              >
+                Sign Up
+              </Link>
+            </>
+          )}
         </div>
       </div>
     </header>

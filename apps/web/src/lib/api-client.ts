@@ -123,7 +123,16 @@ apiClient.interceptors.response.use(
       setAccessToken(null);
       if (typeof window !== "undefined") {
         localStorage.removeItem("ep_refresh_token");
-        window.location.href = "/login";
+        // Only redirect to login if user is on an auth-required page
+        // (not on public browse pages like /posters, /events, /)
+        const publicPaths = ["/", "/posters", "/events", "/login", "/register"];
+        const currentPath = window.location.pathname;
+        const isPublicPage = publicPaths.some(
+          (p) => currentPath === p || currentPath.startsWith(p + "/")
+        );
+        if (!isPublicPage) {
+          window.location.href = "/login";
+        }
       }
       return Promise.reject(refreshError);
     } finally {

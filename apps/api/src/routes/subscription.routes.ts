@@ -1,11 +1,16 @@
 import { Router } from "express";
-import { authenticate } from "../middleware/auth.js";
+import { authenticate, optionalAuth } from "../middleware/auth.js";
 import { subscriptionController } from "../controllers/subscription.controller.js";
 import { razorpayController } from "../controllers/razorpay.controller.js";
 
 const router = Router();
 
-// All subscription routes require authentication
+// GET /api/v1/subscriptions/plans — List available plans (public — guests can see pricing)
+router.get("/plans", optionalAuth, (req, res, next) =>
+  subscriptionController.plans(req, res, next)
+);
+
+// All routes below require authentication
 router.use(authenticate);
 
 // POST /api/v1/subscriptions/verify — Verify purchase after StoreKit transaction
@@ -23,10 +28,6 @@ router.post("/restore", (req, res, next) =>
   subscriptionController.restore(req, res, next)
 );
 
-// GET /api/v1/subscriptions/plans — List available plans (pricing display)
-router.get("/plans", (req, res, next) =>
-  subscriptionController.plans(req, res, next)
-);
 
 // POST /api/v1/subscriptions/cancel — Cancel auto-renewal
 router.post("/cancel", (req, res, next) =>

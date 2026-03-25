@@ -3,14 +3,10 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { Film, Calendar, Image as ImageIcon, Download } from "lucide-react";
+import { useAuthStore } from "@/stores/auth.store";
+import { Film, Calendar, Image as ImageIcon, Download, LogIn } from "lucide-react";
 
-const navItems = [
-    {
-        label: "Status",
-        href: "/status", // Disabled/Mock route as per requirements
-        icon: Film,
-    },
+const publicNavItems = [
     {
         label: "Events",
         href: "/events",
@@ -21,6 +17,15 @@ const navItems = [
         href: "/posters",
         icon: ImageIcon,
     },
+];
+
+const authNavItems = [
+    {
+        label: "Status",
+        href: "/status",
+        icon: Film,
+        disabled: true,
+    },
     {
         label: "Download",
         href: "/downloads",
@@ -30,6 +35,19 @@ const navItems = [
 
 export function MobileBottomNav() {
     const pathname = usePathname();
+    const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+
+    const navItems = isAuthenticated
+        ? [
+              // Status first, then public items, then download
+              { label: "Status", href: "/status", icon: Film, disabled: true },
+              ...publicNavItems.map((i) => ({ ...i, disabled: false })),
+              { label: "Download", href: "/downloads", icon: Download, disabled: false },
+          ]
+        : [
+              ...publicNavItems.map((i) => ({ ...i, disabled: false })),
+              { label: "Login", href: "/login", icon: LogIn, disabled: false },
+          ];
 
     return (
         <nav className="fixed bottom-0 left-0 right-0 z-40 flex h-16 w-full items-center justify-around border-t border-gray-200 bg-white pb-safe md:hidden">
@@ -45,8 +63,8 @@ export function MobileBottomNav() {
                             isActive ? "text-gray-900" : "text-gray-400"
                         )}
                         onClick={(e) => {
-                            if (item.href === "/status") {
-                                e.preventDefault(); // Disable status link for now
+                            if (item.disabled) {
+                                e.preventDefault();
                             }
                         }}
                     >

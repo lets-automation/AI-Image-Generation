@@ -1,10 +1,10 @@
 import { Router } from "express";
 import { festivalController } from "../controllers/festival.controller.js";
-import { authenticate } from "../middleware/auth.js";
+import { optionalAuth } from "../middleware/auth.js";
 
 const router = Router();
 
-router.use(authenticate);
+router.use(optionalAuth);
 
 router.get(
   "/upcoming",

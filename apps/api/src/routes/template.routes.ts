@@ -1,12 +1,12 @@
 import { Router } from "express";
 import { templateController } from "../controllers/template.controller.js";
 import { validate } from "../middleware/validation.js";
-import { authenticate } from "../middleware/auth.js";
+import { optionalAuth } from "../middleware/auth.js";
 import { templateListQuery, templateGroupedQuery } from "@ep/shared";
 
 const router = Router();
 
-router.use(authenticate);
+router.use(optionalAuth);
 
 router.get(
   "/",

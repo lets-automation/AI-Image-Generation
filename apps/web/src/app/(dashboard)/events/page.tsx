@@ -11,8 +11,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Search } from "lucide-react";
-import { useAuthStore } from "@/stores/auth.store";
-import { PublicFeed } from "@/components/templates/PublicFeed";
 
 export default function EventsPage() {
   const {
@@ -39,34 +37,26 @@ export default function EventsPage() {
 
   useEffect(() => {
     const store = useBrowseStore.getState();
-    if (store.contentType !== "EVENT" || !store.aspectRatio) {
-      // Set content type and aspect ratio together without resetting aspectRatio
-      useBrowseStore.setState({
-        contentType: "EVENT",
-        aspectRatio: "SQUARE",
-        categoryId: null,
-        page: 1,
-        searchQuery: "",
-      });
+    if (store.contentType !== "EVENT") {
+      setContentType("EVENT");
+      setAspectRatio("SQUARE"); // default for Events based on mockup
     }
     fetchCategories("EVENT");
     fetchFestivals("EVENT");
-  }, [fetchCategories, fetchFestivals]);
+  }, [setContentType, setAspectRatio, fetchCategories, fetchFestivals]);
 
   useEffect(() => {
     const store = useBrowseStore.getState();
-    if (store.contentType !== "EVENT") return;
-    const timer = setTimeout(() => {
-      fetchTemplates();
-      if (!store.categoryId) {
-        fetchGroupedCategories();
-      }
-    }, 50);
-    return () => clearTimeout(timer);
+    if (store.contentType === "EVENT") {
+      const timer = setTimeout(() => {
+        fetchTemplates();
+        if (!store.categoryId) {
+          fetchGroupedCategories();
+        }
+      }, 50);
+      return () => clearTimeout(timer);
+    }
   }, [categoryId, aspectRatio, page, searchQuery, fetchTemplates, fetchGroupedCategories]);
-
-  const { user } = useAuthStore();
-  const canGenerate = user?.canGenerate;
 
   return (
     <div>
@@ -76,20 +66,11 @@ export default function EventsPage() {
       <div className="mb-6 hidden md:block">
         <h1 className="text-2xl font-bold">Events</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          {canGenerate ? "Browse event templates or upload your own image" : "Browse recent community event creations"}
+          Browse event templates or upload your own image
         </p>
       </div>
 
-      {!canGenerate ? (
-        <div className="mt-8">
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-xl font-bold tracking-tight">Community Showcase</h2>
-            <p className="text-sm text-muted-foreground">Recent public creations</p>
-          </div>
-          <PublicFeed contentType="EVENT" />
-        </div>
-      ) : (
-        <>
+      <>
           <div className="mb-6 flex flex-col items-center gap-4 md:flex-row md:justify-between">
             <Tabs
               value={aspectRatio || "SQUARE"}
@@ -229,7 +210,6 @@ export default function EventsPage() {
             </p>
           )}
         </>
-      )}
     </div>
   );
 }
