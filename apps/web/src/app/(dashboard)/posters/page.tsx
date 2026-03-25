@@ -36,6 +36,8 @@ export default function PostersPage() {
     setContentType,
   } = useBrowseStore();
 
+  const contentType = useBrowseStore((s) => s.contentType);
+
   useEffect(() => {
     const store = useBrowseStore.getState();
     if (store.contentType !== "POSTER" || !store.aspectRatio) {
@@ -52,16 +54,15 @@ export default function PostersPage() {
   }, [fetchCategories, fetchFestivals]);
 
   useEffect(() => {
-    const store = useBrowseStore.getState();
-    if (store.contentType !== "POSTER") return;
+    if (contentType !== "POSTER") return;
     const timer = setTimeout(() => {
       fetchTemplates();
-      if (!store.categoryId) {
+      if (!useBrowseStore.getState().categoryId) {
         fetchGroupedCategories();
       }
     }, 50);
     return () => clearTimeout(timer);
-  }, [categoryId, aspectRatio, page, searchQuery, fetchTemplates, fetchGroupedCategories]);
+  }, [contentType, categoryId, aspectRatio, page, searchQuery, fetchTemplates, fetchGroupedCategories]);
 
   const currentCategoryName = categoryId
     ? categories.find((c) => c.id === categoryId)?.name || "All"
@@ -188,11 +189,9 @@ export default function PostersPage() {
                             See All
                           </button>
                         </div>
-                        <div className="flex snap-x overflow-x-auto gap-4 pb-4 -mx-4 px-4 scrollbar-hide">
-                          {group.templates.map((template) => (
-                            <div key={template.id} className="snap-start min-w-[140px] md:min-w-[180px]">
-                              <TemplateCard template={template} contentType="POSTER" />
-                            </div>
+                        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+                          {group.templates.slice(0, 5).map((template) => (
+                            <TemplateCard key={template.id} template={template} contentType="POSTER" />
                           ))}
                         </div>
                       </div>

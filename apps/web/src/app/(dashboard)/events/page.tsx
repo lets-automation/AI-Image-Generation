@@ -35,6 +35,8 @@ export default function EventsPage() {
     setContentType,
   } = useBrowseStore();
 
+  const contentType = useBrowseStore((s) => s.contentType);
+
   useEffect(() => {
     const store = useBrowseStore.getState();
     if (store.contentType !== "EVENT") {
@@ -46,17 +48,15 @@ export default function EventsPage() {
   }, [setContentType, setAspectRatio, fetchCategories, fetchFestivals]);
 
   useEffect(() => {
-    const store = useBrowseStore.getState();
-    if (store.contentType === "EVENT") {
-      const timer = setTimeout(() => {
-        fetchTemplates();
-        if (!store.categoryId) {
-          fetchGroupedCategories();
-        }
-      }, 50);
-      return () => clearTimeout(timer);
-    }
-  }, [categoryId, aspectRatio, page, searchQuery, fetchTemplates, fetchGroupedCategories]);
+    if (contentType !== "EVENT") return;
+    const timer = setTimeout(() => {
+      fetchTemplates();
+      if (!useBrowseStore.getState().categoryId) {
+        fetchGroupedCategories();
+      }
+    }, 50);
+    return () => clearTimeout(timer);
+  }, [contentType, categoryId, aspectRatio, page, searchQuery, fetchTemplates, fetchGroupedCategories]);
 
   return (
     <div>
@@ -160,11 +160,9 @@ export default function EventsPage() {
                             See All
                           </button>
                         </div>
-                        <div className="flex snap-x overflow-x-auto gap-4 pb-4 -mx-4 px-4 scrollbar-hide">
-                          {group.templates.map((template) => (
-                            <div key={template.id} className="snap-start min-w-[140px] md:min-w-[180px]">
-                              <TemplateCard template={template} contentType="EVENT" />
-                            </div>
+                        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+                          {group.templates.slice(0, 5).map((template) => (
+                            <TemplateCard key={template.id} template={template} contentType="EVENT" />
                           ))}
                         </div>
                       </div>
