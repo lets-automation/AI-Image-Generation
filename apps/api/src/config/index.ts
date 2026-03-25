@@ -46,6 +46,9 @@ const envSchema = z.object({
   RAZORPAY_KEY_SECRET: z.string().default(""),
   RAZORPAY_WEBHOOK_SECRET: z.string().default(""),     // For webhook signature verification
 
+  // Google OAuth
+  GOOGLE_CLIENT_ID: z.string().default(""),
+
   // Rate Limiting
   RATE_LIMIT_GLOBAL_PER_MIN: z.coerce.number().default(100),
   RATE_LIMIT_AUTH_PER_MIN: z.coerce.number().default(10),

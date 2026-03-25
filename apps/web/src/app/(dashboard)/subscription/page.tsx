@@ -46,10 +46,13 @@ export default function SubscriptionPage() {
     fetchPlans,
     createRazorpayOrder,
     verifyRazorpayPayment,
+    cancelSubscription,
   } = useSubscriptionStore();
 
   const [purchasingPlanId, setPurchasingPlanId] = useState<string | null>(null);
   const [razorpayLoaded, setRazorpayLoaded] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
 
   useEffect(() => {
     fetchStatus();
@@ -206,22 +209,66 @@ export default function SubscriptionPage() {
                 </p>
               </div>
               <div>
-                <span className="text-gray-500">Renews on</span>
+                <span className="text-gray-500">
+                  {sub.autoRenewEnabled ? "Renews on" : "Expires on"}
+                </span>
                 <p className="font-medium text-gray-900">
                   {new Date(sub.currentPeriodEnd).toLocaleDateString()}
                 </p>
               </div>
             </div>
 
-            {/* Auto-renew status */}
-            <div className="mt-4 text-sm">
-              {sub.autoRenewEnabled ? (
-                <p className="text-green-600">Auto-renewal is enabled</p>
-              ) : (
-                <p className="text-orange-600">
-                  Auto-renewal is disabled
-                  {sub.cancellationReason && ` — ${sub.cancellationReason}`}
-                </p>
+            {/* Auto-renew status + Cancel */}
+            <div className="mt-4 flex items-center justify-between">
+              <div className="text-sm">
+                {sub.autoRenewEnabled ? (
+                  <p className="text-green-600">Auto-renewal is enabled</p>
+                ) : (
+                  <p className="text-orange-600">
+                    Subscription will expire on {new Date(sub.currentPeriodEnd).toLocaleDateString()}
+                    {sub.cancellationReason && ` — ${sub.cancellationReason}`}
+                  </p>
+                )}
+              </div>
+              {sub.autoRenewEnabled && (
+                <div>
+                  {!showCancelConfirm ? (
+                    <button
+                      onClick={() => setShowCancelConfirm(true)}
+                      className="text-sm font-medium text-red-600 hover:text-red-700 hover:underline"
+                    >
+                      Cancel subscription
+                    </button>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-gray-500">Are you sure?</span>
+                      <button
+                        onClick={async () => {
+                          setCancelling(true);
+                          try {
+                            await cancelSubscription();
+                            toast.success("Subscription cancelled. You can use credits until the period ends.");
+                          } catch {
+                            toast.error("Failed to cancel subscription");
+                          } finally {
+                            setCancelling(false);
+                            setShowCancelConfirm(false);
+                          }
+                        }}
+                        disabled={cancelling}
+                        className="rounded bg-red-600 px-3 py-1 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50"
+                      >
+                        {cancelling ? "Cancelling..." : "Yes, cancel"}
+                      </button>
+                      <button
+                        onClick={() => setShowCancelConfirm(false)}
+                        className="rounded bg-gray-100 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-200"
+                      >
+                        No, keep
+                      </button>
+                    </div>
+                  )}
+                </div>
               )}
             </div>
 
@@ -292,7 +339,7 @@ export default function SubscriptionPage() {
                         </span>
                       ))}
                     </div>
-                    {plan.features && plan.features.length > 0 && (
+                    {Array.isArray(plan.features) && plan.features.length > 0 && (
                       <ul className="mt-3 space-y-1">
                         {plan.features.map((f, i) => (
                           <li

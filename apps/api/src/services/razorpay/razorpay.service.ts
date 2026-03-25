@@ -223,7 +223,7 @@ export class RazorpayService {
           status: "ACTIVE",
           currentPeriodStart: now,
           currentPeriodEnd: periodEnd,
-          autoRenewEnabled: false,                       // One-time payment, no auto-renewal
+          autoRenewEnabled: true,                        // Auto-renew by default; user can cancel
           lastRenewalDate: now,
           razorpayOrderId: razorpay_order_id,
           razorpayPaymentId: razorpay_payment_id,

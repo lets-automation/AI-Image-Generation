@@ -40,25 +40,29 @@ export default function PostersPage() {
 
   useEffect(() => {
     const store = useBrowseStore.getState();
-    if (store.contentType !== "POSTER") {
-      setContentType("POSTER");
-      setAspectRatio("SQUARE"); // default to Instagram (Square)
+    if (store.contentType !== "POSTER" || !store.aspectRatio) {
+      useBrowseStore.setState({
+        contentType: "POSTER",
+        aspectRatio: "SQUARE",
+        categoryId: null,
+        page: 1,
+        searchQuery: "",
+      });
     }
     fetchCategories("POSTER");
     fetchFestivals("POSTER");
-  }, [setContentType, setAspectRatio, fetchCategories, fetchFestivals]);
+  }, [fetchCategories, fetchFestivals]);
 
   useEffect(() => {
     const store = useBrowseStore.getState();
-    if (store.contentType === "POSTER") {
-      const timer = setTimeout(() => {
-        fetchTemplates();
-        if (!store.categoryId) {
-          fetchGroupedCategories();
-        }
-      }, 300);
-      return () => clearTimeout(timer);
-    }
+    if (store.contentType !== "POSTER") return;
+    const timer = setTimeout(() => {
+      fetchTemplates();
+      if (!store.categoryId) {
+        fetchGroupedCategories();
+      }
+    }, 50);
+    return () => clearTimeout(timer);
   }, [categoryId, aspectRatio, page, searchQuery, fetchTemplates, fetchGroupedCategories]);
 
   const currentCategoryName = categoryId

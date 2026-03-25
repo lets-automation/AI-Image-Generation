@@ -109,12 +109,13 @@ model User {
   id            String    @id @default(cuid())
   email         String    @unique
   phone         String?   @unique
+  googleId      String?   @unique
   passwordHash  String
   name          String
   role          UserRole  @default(USER)
   customRoleId  String?
   isActive      Boolean   @default(true)
-  canGenerate   Boolean   @default(false)
+  canGenerate   Boolean   @default(true)
   emailVerified Boolean   @default(false)
   avatarUrl     String?
   lastLoginAt   DateTime?

@@ -3,10 +3,13 @@ import jwt from "jsonwebtoken";
 import { v4 as uuidv4 } from "uuid";
 import { prisma } from "../config/database.js";
 import { config } from "../config/index.js";
+import { logger } from "../utils/logger.js";
 import {
   UnauthorizedError,
   ConflictError,
   NotFoundError,
+  BadRequestError,
+  ForbiddenError,
 } from "../utils/errors.js";
 type UserRole = "USER" | "ADMIN" | "SUPER_ADMIN";
 
@@ -33,6 +36,10 @@ interface AuthResult {
 export class AuthService {
   private readonly SALT_ROUNDS = 12;
 
+  /**
+   * Register with email/password. Restricted to admin account creation only.
+   * Regular users must sign up via Google OAuth.
+   */
   async register(input: {
     email: string;
     password: string;
@@ -99,6 +106,11 @@ export class AuthService {
       throw new UnauthorizedError("Account has been deactivated");
     }
 
+    // Only admin/super_admin can use email/password login
+    if (user.role === "USER") {
+      throw new ForbiddenError("Please use Google Sign-In to log in");
+    }
+
     const validPassword = await bcrypt.compare(
       input.password,
       user.passwordHash
@@ -127,6 +139,103 @@ export class AuthService {
         avatarUrl: user.avatarUrl,
         canGenerate: user.role === "SUPER_ADMIN" ? true : user.canGenerate,
         createdAt: user.createdAt,
+      },
+      tokens,
+    };
+  }
+
+  /**
+   * Authenticate via Google OAuth. Verifies the Google ID token,
+   * finds or creates the user, and issues JWT tokens.
+   */
+  async googleLogin(credential: string): Promise<AuthResult> {
+    // 1. Verify token with Google
+    const res = await fetch(
+      `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(credential)}`
+    );
+
+    if (!res.ok) {
+      throw new UnauthorizedError("Invalid Google token");
+    }
+
+    const payload = (await res.json()) as {
+      aud: string; sub: string; email?: string; name?: string; picture?: string;
+    };
+
+    // 2. Validate audience matches our client ID
+    if (payload.aud !== config.GOOGLE_CLIENT_ID) {
+      logger.warn({ aud: payload.aud }, "Google token audience mismatch");
+      throw new UnauthorizedError("Invalid Google token");
+    }
+
+    const googleId = payload.sub;
+    const email = payload.email;
+    const name = payload.name;
+    const picture = payload.picture;
+
+    if (!email) {
+      throw new BadRequestError("Email is required for Google sign-in");
+    }
+
+    // 3. Find or create user
+    let user = await prisma.user.findFirst({
+      where: { OR: [{ googleId } as any, { email }] },
+      include: { customRole: { select: { name: true, permissions: true } } },
+    });
+
+    if (user && !(user as any).googleId) {
+      // Link Google account to existing email user
+      user = await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          googleId,
+          avatarUrl: user.avatarUrl || picture || null,
+          emailVerified: true,
+        } as any,
+        include: { customRole: { select: { name: true, permissions: true } } },
+      });
+      logger.info({ userId: user.id, email }, "Google account linked to existing user");
+    } else if (!user) {
+      // Create new user with a random unusable password hash
+      const randomHash = await bcrypt.hash(uuidv4(), this.SALT_ROUNDS);
+      user = await prisma.user.create({
+        data: {
+          email,
+          passwordHash: randomHash,
+          name: name || email.split("@")[0],
+          googleId,
+          avatarUrl: picture || null,
+          emailVerified: true,
+          canGenerate: true,
+        } as any,
+        include: { customRole: { select: { name: true, permissions: true } } },
+      });
+      logger.info({ userId: user.id, email }, "New user created via Google OAuth");
+    }
+
+    if (user!.deletedAt || !user!.isActive) {
+      throw new UnauthorizedError("Account has been deactivated");
+    }
+
+    // 4. Update last login
+    await prisma.user.update({
+      where: { id: user!.id },
+      data: { lastLoginAt: new Date() },
+    });
+
+    const tokens = await this.generateTokens(user!.id, user!.role, (user as any)!.customRole?.permissions || []);
+
+    return {
+      user: {
+        id: user!.id,
+        email: user!.email,
+        name: user!.name,
+        phone: user!.phone,
+        role: user!.role,
+        customRole: (user as any)!.customRole,
+        avatarUrl: user!.avatarUrl,
+        canGenerate: user!.role === "SUPER_ADMIN" ? true : user!.canGenerate,
+        createdAt: user!.createdAt,
       },
       tokens,
     };

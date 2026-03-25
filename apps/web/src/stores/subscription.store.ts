@@ -62,6 +62,7 @@ interface SubscriptionState {
   restorePurchase: (originalTransactionId: string) => Promise<void>;
   createRazorpayOrder: (planId: string) => Promise<RazorpayOrderResult>;
   verifyRazorpayPayment: (planId: string, payment: { razorpay_order_id: string; razorpay_payment_id: string; razorpay_signature: string }) => Promise<void>;
+  cancelSubscription: () => Promise<void>;
   reset: () => void;
 }
 
@@ -150,6 +151,20 @@ export const useSubscriptionStore = create<SubscriptionState>((set) => ({
       set({ status: res.data.data, isLoading: false });
     } catch (err: any) {
       const message = err?.response?.data?.error?.message ?? err.message ?? "Payment verification failed";
+      set({ error: message, isLoading: false });
+      throw new Error(message);
+    }
+  },
+
+  cancelSubscription: async () => {
+    set({ isLoading: true, error: null });
+    try {
+      const res = await apiClient.post<{ success: boolean; data: SubscriptionStatus }>(
+        "/subscriptions/cancel"
+      );
+      set({ status: res.data.data, isLoading: false });
+    } catch (err: any) {
+      const message = err?.response?.data?.error?.message ?? err.message ?? "Failed to cancel subscription";
       set({ error: message, isLoading: false });
       throw new Error(message);
     }

@@ -28,6 +28,11 @@ router.get("/plans", (req, res, next) =>
   subscriptionController.plans(req, res, next)
 );
 
+// POST /api/v1/subscriptions/cancel — Cancel auto-renewal
+router.post("/cancel", (req, res, next) =>
+  subscriptionController.cancel(req, res, next)
+);
+
 // Razorpay (Web)
 
 // POST /api/v1/subscriptions/razorpay/create-order — Create Razorpay order

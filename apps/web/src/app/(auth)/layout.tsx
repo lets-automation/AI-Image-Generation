@@ -1,7 +1,5 @@
 "use client";
 
-import { Sparkles } from "lucide-react";
-
 export default function AuthLayout({
   children,
 }: {
@@ -11,33 +9,62 @@ export default function AuthLayout({
     <div className="flex min-h-screen">
       {/* Branding panel */}
       <div className="relative hidden flex-col justify-between overflow-hidden bg-zinc-950 p-10 text-white lg:flex lg:w-1/2">
-        <div className="pointer-events-none absolute -left-20 -top-20 h-96 w-96 rounded-full bg-primary-600/20 blur-[100px]" />
-        <div className="pointer-events-none absolute -bottom-20 -right-20 h-96 w-96 rounded-full bg-accent-600/20 blur-[100px]" />
-        
-        <div className="relative z-10 flex items-center gap-2 text-xl font-bold tracking-tight">
-          <Sparkles className="h-6 w-6 text-primary-400" />
-          EP Product
+        {/* Gradient orbs */}
+        <div className="pointer-events-none absolute -left-20 -top-20 h-[500px] w-[500px] rounded-full bg-primary-600/15 blur-[120px]" />
+        <div className="pointer-events-none absolute -bottom-20 -right-20 h-[500px] w-[500px] rounded-full bg-accent-600/15 blur-[120px]" />
+        <div className="pointer-events-none absolute left-1/2 top-1/2 h-64 w-64 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary-500/10 blur-[80px]" />
+
+        {/* Logo */}
+        <div className="relative z-10 flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-primary-500 to-accent-500 shadow-lg">
+            <svg className="h-5 w-5 text-white" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
+            </svg>
+          </div>
+          <span className="text-xl font-bold tracking-tight">EP Product</span>
         </div>
-        
-        <div className="relative z-10">
+
+        {/* Quote + features */}
+        <div className="relative z-10 space-y-10">
           <blockquote className="space-y-4">
-            <p className="text-2xl font-medium leading-relaxed tracking-wide text-zinc-100">
-              "Generate stunning festival creatives in multiple languages with AI&#8209;powered enhancements."
+            <p className="text-3xl font-semibold leading-snug tracking-tight text-white">
+              Festival creatives,
+              <br />
+              <span className="bg-gradient-to-r from-primary-400 to-accent-400 bg-clip-text text-transparent">
+                powered by AI.
+              </span>
             </p>
-            <footer className="text-base text-zinc-400 border-l-2 border-primary-500 pl-4">
-              Built for businesses, educators, and creators.
-            </footer>
+            <p className="max-w-sm text-base leading-relaxed text-zinc-400">
+              Generate stunning visuals in 10+ languages with a single click. Built for businesses, educators, and creators.
+            </p>
           </blockquote>
+
+          <div className="grid grid-cols-2 gap-4">
+            {[
+              { label: "AI-Powered", desc: "Smart generation engine" },
+              { label: "10+ Languages", desc: "Hindi, Arabic, CJK & more" },
+              { label: "Multiple Sizes", desc: "Square, story, landscape" },
+              { label: "Instant Export", desc: "Download in seconds" },
+            ].map((f) => (
+              <div
+                key={f.label}
+                className="rounded-xl border border-white/5 bg-white/[0.03] px-4 py-3 backdrop-blur-sm"
+              >
+                <p className="text-sm font-semibold text-white">{f.label}</p>
+                <p className="mt-0.5 text-xs text-zinc-500">{f.desc}</p>
+              </div>
+            ))}
+          </div>
         </div>
-        
-        <p className="relative z-10 text-sm text-zinc-500">
+
+        <p className="relative z-10 text-sm text-zinc-600">
           &copy; {new Date().getFullYear()} EP Product. All rights reserved.
         </p>
       </div>
 
       {/* Auth form area */}
-      <div className="flex w-full items-center justify-center bg-zinc-50 px-4 sm:px-6 lg:w-1/2">
-        <div className="w-full max-w-md rounded-2xl bg-white p-8 shadow-xl ring-1 ring-zinc-200 sm:p-10">
+      <div className="flex w-full items-center justify-center bg-gray-50 px-4 sm:px-6 lg:w-1/2">
+        <div className="w-full max-w-md rounded-2xl bg-white p-8 shadow-xl shadow-gray-200/50 ring-1 ring-gray-100 sm:p-10">
           {children}
         </div>
       </div>

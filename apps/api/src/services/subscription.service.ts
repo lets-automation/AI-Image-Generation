@@ -619,6 +619,40 @@ export class SubscriptionService {
     return result;
   }
 
+  // ─── Cancel Subscription ──────────────────────────────────
+
+  /**
+   * Cancel auto-renewal on the user's active subscription.
+   * The subscription stays active until currentPeriodEnd, then expires.
+   */
+  async cancelSubscription(userId: string) {
+    const subscription = await this.findActiveSubscriptionFromDb(userId);
+    if (!subscription) {
+      throw new NotFoundError("Active subscription");
+    }
+
+    if (!subscription.autoRenewEnabled) {
+      throw new ConflictError("Subscription is already set to cancel at period end");
+    }
+
+    await prisma.subscription.update({
+      where: { id: subscription.id },
+      data: { autoRenewEnabled: false },
+    });
+
+    // Invalidate cache
+    try {
+      const redis = getRedis();
+      await redis.del(statusKey(userId));
+    } catch {
+      // Non-critical
+    }
+
+    logger.info({ userId, subscriptionId: subscription.id }, "Subscription auto-renewal cancelled");
+
+    return this.getActiveSubscription(userId);
+  }
+
   // ─── Credit Operations ────────────────────────────────────
 
   /**

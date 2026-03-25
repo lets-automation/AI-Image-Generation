@@ -59,7 +59,7 @@ export const useBrowseStore = create<BrowseState & { searchQuery: string; setSea
   categoriesLoaded: false,
   festivalsLoaded: false,
 
-  setContentType: (type) => set({ contentType: type, categoryId: null, aspectRatio: null, page: 1, searchQuery: "" }),
+  setContentType: (type) => set({ contentType: type, categoryId: null, page: 1, searchQuery: "", categoriesLoaded: false, festivalsLoaded: false }),
   setCategoryId: (id) => set({ categoryId: id, page: 1, searchQuery: "" }),
   setAspectRatio: (ratio) => set({ aspectRatio: ratio, page: 1 }),
   setPage: (page) => set({ page }),

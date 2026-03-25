@@ -26,6 +26,12 @@ router.post(
 );
 
 router.post(
+  "/google",
+  authLimiter,
+  authController.googleLogin.bind(authController)
+);
+
+router.post(
   "/refresh",
   authLimiter,
   validate({ body: refreshTokenSchema }),

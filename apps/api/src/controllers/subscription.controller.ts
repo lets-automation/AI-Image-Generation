@@ -201,6 +201,58 @@ export class SubscriptionController {
       next(err);
     }
   }
+  /**
+   * POST /api/v1/subscriptions/cancel
+   *
+   * Cancel auto-renewal on the active subscription.
+   * Subscription stays active until the current period ends.
+   */
+  async cancel(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const userId = req.userId!;
+      const result = await subscriptionService.cancelSubscription(userId);
+
+      if (!result) {
+        res.json({
+          success: true,
+          data: {
+            hasActiveSubscription: false,
+            subscription: null,
+            balance: null,
+          },
+        });
+        return;
+      }
+
+      res.json({
+        success: true,
+        data: {
+          hasActiveSubscription: true,
+          subscription: {
+            id: result.subscription.id,
+            planId: result.subscription.planId,
+            planName: result.subscription.plan.name,
+            tierAccess: result.subscription.plan.tierAccess,
+            status: result.subscription.status,
+            provider: result.subscription.provider,
+            currentPeriodStart: result.subscription.currentPeriodStart,
+            currentPeriodEnd: result.subscription.currentPeriodEnd,
+            autoRenewEnabled: result.subscription.autoRenewEnabled,
+            cancellationReason: result.subscription.cancellationReason,
+          },
+          balance: result.balance
+            ? {
+                remainingCredits: result.balance.remainingCredits,
+                weeklyCredits: result.balance.weeklyCredits,
+                periodEnd: result.balance.periodEnd,
+              }
+            : null,
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
 }
 
 export const subscriptionController = new SubscriptionController();

@@ -39,25 +39,30 @@ export default function EventsPage() {
 
   useEffect(() => {
     const store = useBrowseStore.getState();
-    if (store.contentType !== "EVENT") {
-      setContentType("EVENT");
-      setAspectRatio("SQUARE"); // default for Events based on mockup
+    if (store.contentType !== "EVENT" || !store.aspectRatio) {
+      // Set content type and aspect ratio together without resetting aspectRatio
+      useBrowseStore.setState({
+        contentType: "EVENT",
+        aspectRatio: "SQUARE",
+        categoryId: null,
+        page: 1,
+        searchQuery: "",
+      });
     }
     fetchCategories("EVENT");
     fetchFestivals("EVENT");
-  }, [setContentType, setAspectRatio, fetchCategories, fetchFestivals]);
+  }, [fetchCategories, fetchFestivals]);
 
   useEffect(() => {
     const store = useBrowseStore.getState();
-    if (store.contentType === "EVENT") {
-      const timer = setTimeout(() => {
-        fetchTemplates();
-        if (!store.categoryId) {
-          fetchGroupedCategories();
-        }
-      }, 300);
-      return () => clearTimeout(timer);
-    }
+    if (store.contentType !== "EVENT") return;
+    const timer = setTimeout(() => {
+      fetchTemplates();
+      if (!store.categoryId) {
+        fetchGroupedCategories();
+      }
+    }, 50);
+    return () => clearTimeout(timer);
   }, [categoryId, aspectRatio, page, searchQuery, fetchTemplates, fetchGroupedCategories]);
 
   const { user } = useAuthStore();

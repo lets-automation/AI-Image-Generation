@@ -46,6 +46,37 @@ export class AuthController {
     }
   }
 
+  async googleLogin(
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> {
+    try {
+      const { credential } = req.body as { credential?: string };
+      if (!credential) {
+        res.status(400).json({
+          success: false,
+          error: { message: "Google credential is required" },
+        });
+        return;
+      }
+
+      const result = await authService.googleLogin(credential);
+      res.json({
+        success: true,
+        data: {
+          user: {
+            ...result.user,
+            createdAt: result.user.createdAt.toISOString(),
+          },
+          tokens: result.tokens,
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
   async refresh(
     req: Request,
     res: Response,
