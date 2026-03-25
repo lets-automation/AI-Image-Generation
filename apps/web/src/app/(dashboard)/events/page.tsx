@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { useBrowseStore } from "@/stores/browse.store";
 import { CategoryFilter } from "@/components/templates/CategoryFilter";
 import { FestivalBanner } from "@/components/templates/FestivalBanner";
@@ -60,6 +60,20 @@ export default function EventsPage() {
     return () => clearTimeout(timer);
   }, [contentType, categoryId, aspectRatio, page, searchQuery, fetchTemplates, fetchGroupedCategories]);
 
+  // Derive category counts from groupedCategories (which respects aspectRatio)
+  const filteredCategories = useMemo(() => {
+    if (!groupedCategories.length) return categories;
+    const groupedMap = new Map(
+      groupedCategories.map((g) => [g.id, g.templates.length])
+    );
+    return categories
+      .map((cat) => ({
+        ...cat,
+        _count: { templates: groupedMap.get(cat.id) ?? 0 },
+      }))
+      .filter((cat) => (cat._count?.templates ?? 0) > 0);
+  }, [categories, groupedCategories]);
+
   return (
     <div>
       <div className="mb-6 md:hidden">
@@ -107,7 +121,7 @@ export default function EventsPage() {
 
           <div className="mb-6">
             <CategoryFilter
-              categories={categories}
+              categories={filteredCategories}
               selectedId={categoryId}
               onSelect={setCategoryId}
               loading={!categoriesLoaded}
