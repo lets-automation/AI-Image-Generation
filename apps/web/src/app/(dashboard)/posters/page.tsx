@@ -56,8 +56,10 @@ export default function PostersPage() {
   useEffect(() => {
     if (contentType !== "POSTER") return;
     const timer = setTimeout(() => {
-      fetchTemplates();
-      if (!useBrowseStore.getState().categoryId) {
+      const currentCategoryId = useBrowseStore.getState().categoryId;
+      if (currentCategoryId) {
+        fetchTemplates();
+      } else {
         fetchGroupedCategories();
       }
     }, 50);

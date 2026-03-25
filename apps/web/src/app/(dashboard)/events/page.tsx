@@ -50,8 +50,10 @@ export default function EventsPage() {
   useEffect(() => {
     if (contentType !== "EVENT") return;
     const timer = setTimeout(() => {
-      fetchTemplates();
-      if (!useBrowseStore.getState().categoryId) {
+      const currentCategoryId = useBrowseStore.getState().categoryId;
+      if (currentCategoryId) {
+        fetchTemplates();
+      } else {
         fetchGroupedCategories();
       }
     }, 50);

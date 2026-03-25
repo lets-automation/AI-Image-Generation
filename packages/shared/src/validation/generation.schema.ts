@@ -30,7 +30,7 @@ export const createGenerationSchema = z
     contentType: contentTypeEnum,
     categoryId: z.string().cuid("Invalid category ID"),
     qualityTier: qualityTierEnum,
-    orientation: orientationEnum.optional(), // User-chosen image orientation
+    orientation: orientationEnum.nullable().optional(), // User-chosen image orientation
     languages: z
       .array(languageValidator)
       .min(1, "Select at least one language")

@@ -136,8 +136,9 @@ export class GenerationService {
       }
     }
 
-    // 5. Get credit cost (charged ONCE for the entire batch of 10 languages)
-    const creditCost = await this.getCreditCost(qualityTier);
+    // 5. Get credit cost — multiply by number of selected languages
+    const baseCreditCost = await this.getCreditCost(qualityTier);
+    const creditCost = baseCreditCost * selectedLanguages.length;
 
     // 6. Generate a batchId to group all 10 language variants
     const batchId = uuidv4();

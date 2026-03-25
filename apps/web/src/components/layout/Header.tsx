@@ -1,14 +1,25 @@
 "use client";
 
+import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
-import { Menu, User, LogIn } from "lucide-react";
+import { Menu, User, LogIn, Coins } from "lucide-react";
 import { useAuthStore } from "@/stores/auth.store";
+import { useSubscriptionStore } from "@/stores/subscription.store";
 import { cn } from "@/lib/utils";
 
 export function Header() {
   const pathname = usePathname();
   const { user, isAuthenticated } = useAuthStore();
+  const { status, fetchStatus } = useSubscriptionStore();
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      fetchStatus();
+    }
+  }, [isAuthenticated, fetchStatus]);
+
+  const balance = status?.balance;
 
   const getTitle = () => {
     if (pathname.includes("/posters")) return "Posters";
@@ -40,6 +51,17 @@ export function Header() {
         <div className="flex items-center gap-3">
           {isAuthenticated ? (
             <>
+              {balance && (
+                <Link
+                  href="/subscription"
+                  className="flex items-center gap-1.5 rounded-full bg-gray-100 px-3 py-1.5 text-sm font-medium text-gray-700 transition hover:bg-gray-200"
+                >
+                  <Coins className="h-4 w-4 text-amber-500" />
+                  <span className="font-semibold">{balance.remainingCredits}</span>
+                  <span className="text-gray-400">/</span>
+                  <span className="text-gray-500">{balance.weeklyCredits}</span>
+                </Link>
+              )}
               <Link href="/profile" className="text-gray-600 hover:text-gray-900">
                 <User className="h-5 w-5" strokeWidth={2} />
               </Link>

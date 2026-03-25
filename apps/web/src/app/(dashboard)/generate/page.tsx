@@ -35,7 +35,8 @@ import {
 import { Switch } from "@/components/ui/switch";
 import {
   Loader2, ChevronDown, CheckCircle2,
-  ArrowLeft, Sparkles, Image as ImageIcon, Globe, Info, Maximize2, Users,
+  ArrowLeft, Sparkles, Image as ImageIcon, Globe, Info, Users,
+  Square, RectangleVertical, RectangleHorizontal, Smartphone, Monitor,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import toast from "react-hot-toast";
@@ -288,8 +289,15 @@ function PreviewPanel({
         <Separator className="my-3" />
         <div className="flex items-center justify-between">
           <span className="text-sm font-medium">Cost</span>
-          <span className="text-lg font-bold">{tierCfg.defaultCreditCost} credits</span>
+          <span className="text-lg font-bold">
+            {tierCfg.defaultCreditCost * (store.selectedLanguages.length || 1)} credits
+          </span>
         </div>
+        {store.selectedLanguages.length > 1 && (
+          <p className="mt-1 text-[10px] text-muted-foreground text-right">
+            {tierCfg.defaultCreditCost} per language × {store.selectedLanguages.length} languages
+          </p>
+        )}
       </div>
 
       {/* Daily generation limit info */}
@@ -841,6 +849,13 @@ export default function GeneratePage() {
                 {ALL_ORIENTATIONS.map((orient) => {
                   const cfg = ORIENTATION_CONFIGS[orient];
                   const isSelected = store.orientation === orient;
+                  const OrientIcon = {
+                    SQUARE: Square,
+                    PORTRAIT: RectangleVertical,
+                    LANDSCAPE: RectangleHorizontal,
+                    STORY: Smartphone,
+                    WIDE: Monitor,
+                  }[orient] ?? Square;
                   return (
                     <button
                       key={orient}
@@ -854,7 +869,7 @@ export default function GeneratePage() {
                       )}
                     >
                       <div className="flex items-center gap-2">
-                        <Maximize2 className="h-3.5 w-3.5 text-muted-foreground" />
+                        <OrientIcon className="h-3.5 w-3.5 text-muted-foreground" />
                         <p className="text-xs font-medium">{cfg.label}</p>
                       </div>
                       <p className="mt-1 text-[10px] text-muted-foreground">

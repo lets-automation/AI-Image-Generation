@@ -12,6 +12,9 @@ import { swaggerSpec } from "./config/swagger.js";
 
 const app = express();
 
+// ─── Trust Proxy (required behind Nginx/reverse proxy for rate limiting) ───
+app.set("trust proxy", 1);
+
 // ─── API Documentation (before helmet so CSP doesn't block CDN) ───
 app.get("/api/v1/docs", (_req, res) => {
   res.send(`<!DOCTYPE html>

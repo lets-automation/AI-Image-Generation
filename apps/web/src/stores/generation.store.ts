@@ -197,6 +197,21 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
 
   submitGeneration: async () => {
     const state = get();
+
+    // Validate required fields before submitting
+    if (!state.selectedLanguages || state.selectedLanguages.length === 0) {
+      set({ errorMessage: "Please select at least one language.", isSubmitting: false });
+      return;
+    }
+    if (!state.selectedTemplate && !state.uploadedImageUrl) {
+      set({ errorMessage: "Please select a template or upload an image.", isSubmitting: false });
+      return;
+    }
+    if (!state.selectedCategory) {
+      set({ errorMessage: "Please select a category.", isSubmitting: false });
+      return;
+    }
+
     set({ isSubmitting: true, errorMessage: null, phase: "processing" });
 
     try {
@@ -274,12 +289,12 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
       }>(
         "/generations",
         {
-          templateId: state.selectedTemplate?.id,
-          baseImageUrl: resolvedBaseImageUrl,
+          templateId: state.selectedTemplate?.id ?? undefined,
+          baseImageUrl: resolvedBaseImageUrl ?? undefined,
           contentType: state.contentType,
           categoryId: state.selectedCategory?.id,
           qualityTier: state.qualityTier,
-          orientation: state.orientation,
+          orientation: state.orientation ?? undefined,
           prompt: state.prompt,
           fieldValues: updatedFieldValues,
           positionMap: state.positionMap,
