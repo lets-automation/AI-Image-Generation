@@ -13,6 +13,7 @@ export const globalLimiter = rateLimit({
   max: config.RATE_LIMIT_GLOBAL_PER_MIN,
   standardHeaders: true,
   legacyHeaders: false,
+  validate: { xForwardedForHeader: false }, // trust proxy is set on the app
   message: {
     success: false,
     error: {

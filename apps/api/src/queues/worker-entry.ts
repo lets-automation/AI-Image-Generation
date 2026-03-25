@@ -6,6 +6,10 @@
  * Or: node --max-old-space-size=512 --expose-gc dist/queues/worker-entry.js (prod)
  */
 
+// CRITICAL: Load .env before anything else — this is a standalone process,
+// so it does NOT inherit env from the API server.
+import "dotenv/config";
+
 import { config } from "../config/index.js";
 import { connectDatabase, disconnectDatabase } from "../config/database.js";
 import { disconnectRedis } from "../config/redis.js";
