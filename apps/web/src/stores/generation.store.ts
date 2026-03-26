@@ -15,7 +15,7 @@ import { apiClient } from "@/lib/api-client";
 import { useAuthStore } from "@/stores/auth.store";
 import { v4 as uuidv4 } from "uuid";
 
-function getLanguageFromCountry(countryCode?: string | null): string {
+export function getLanguageFromCountry(countryCode?: string | null): string {
   if (!countryCode) return "en";
   const upperCountry = countryCode.toUpperCase();
   for (const [lang, countries] of Object.entries(LANGUAGE_COUNTRY_MAP)) {

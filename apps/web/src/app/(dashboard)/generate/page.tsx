@@ -2,10 +2,13 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { useGenerationStore, type GenerationState } from "@/stores/generation.store";
+import { useGenerationStore, type GenerationState,
+  getLanguageFromCountry,
+} from "@/stores/generation.store";
 import { useRequireAuth } from "@/hooks/useAuth";
 import { userApi, type TemplateDetail, type CategoryItem } from "@/lib/user-api";
 import { apiClient } from "@/lib/api-client";
+import { useAuthStore } from "@/stores/auth.store";
 import {
   TIER_CONFIGS,
   ALL_TIERS,
@@ -137,6 +140,7 @@ function PreviewPanel({
   onGenerate: () => void;
   isGenerating: boolean;
 }) {
+  const { user } = useAuthStore();
   const [genLimits, setGenLimits] = useState<{ dailyLimit: number; usedToday: number; remaining: number } | null>(null);
 
   useEffect(() => {
@@ -153,6 +157,9 @@ function PreviewPanel({
   const hasNoConflicts = store.conflicts.length === 0;
   const hasRemainingGenerations = !genLimits || genLimits.remaining > 0;
   const canGenerate = hasTemplate && hasNoConflicts && hasRemainingGenerations && !isGenerating;
+
+  const autoLangCode = isCustomUpload ? getLanguageFromCountry(user?.country) : null;
+  const autoLangLabel = autoLangCode ? dynamicLanguages.find(l => l.code === autoLangCode)?.nativeLabel || autoLangCode : "English";
 
   // Build overlay entries: fields that have both a value and a position
   const overlayEntries: OverlayEntry[] = Object.entries(store.positionMap)
@@ -260,7 +267,7 @@ function PreviewPanel({
           {isCustomUpload ? (
             <span className="inline-flex items-center gap-1 font-medium">
               <Globe className="h-3.5 w-3.5" />
-              Auto-detect (1)
+              Auto-detect ({autoLangLabel})
             </span>
           ) : (
             <TooltipProvider>
