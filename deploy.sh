@@ -22,6 +22,11 @@ cd "$API_DIR"
 npx prisma generate
 npx prisma migrate deploy
 
+# 2.5 Build Shared Package
+echo "🔧 Building Shared..."
+cd "$APP_DIR/packages/shared"
+npm run build
+
 # 3. Build API
 echo "🔧 Building API..."
 npm run build
