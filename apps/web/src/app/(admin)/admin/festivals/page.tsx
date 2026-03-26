@@ -18,7 +18,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { Plus, MoreHorizontal, Pencil, Power, Trash2, X, Flame } from "lucide-react";
+import { COUNTRIES, getCountryFlag, getCountryName } from "@ep/shared";
+import { Plus, MoreHorizontal, Pencil, Power, Trash2, X, Flame, Globe } from "lucide-react";
 
 type FestivalVisibility = "live" | "upcoming" | "past" | "disabled";
 
@@ -70,6 +71,7 @@ interface FestivalData {
   visibilityDays: number;
   isActive: boolean;
   metadata: { region?: string[]; religion?: string; tags?: string[] } | null;
+  targetCountries?: string[] | null;
   promotedCategories?: PromotedCategoryLink[];
 }
 
@@ -97,6 +99,7 @@ export default function AdminFestivalsPage() {
   const [allCategories, setAllCategories] = useState<CategoryOption[]>([]);
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
   const [categoriesLoading, setCategoriesLoading] = useState(false);
+  const [targetCountries, setTargetCountries] = useState<string[]>([]);
 
   const loadFestivals = useCallback(async () => {
     try {
@@ -135,6 +138,7 @@ export default function AdminFestivalsPage() {
     setName(""); setDescription(""); setDate("");
     setContentType("EVENT"); setVisibilityDays(7);
     setSelectedCategoryIds([]);
+    setTargetCountries([]);
     setEditId(null); setShowForm(false);
   }
 
@@ -148,6 +152,7 @@ export default function AdminFestivalsPage() {
     setSelectedCategoryIds(
       f.promotedCategories?.map((pc) => pc.categoryId) ?? []
     );
+    setTargetCountries(f.targetCountries ?? []);
     setShowForm(true);
   }
 
@@ -159,6 +164,12 @@ export default function AdminFestivalsPage() {
     );
   }
 
+  function toggleCountry(code: string) {
+    setTargetCountries((prev) =>
+      prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]
+    );
+  }
+
   async function handleSubmit() {
     const body = {
       name,
@@ -167,6 +178,7 @@ export default function AdminFestivalsPage() {
       contentType,
       visibilityDays,
       categoryIds: selectedCategoryIds,
+      targetCountries: targetCountries.length > 0 ? targetCountries : undefined,
     };
     try {
       if (editId) {
@@ -248,6 +260,24 @@ export default function AdminFestivalsPage() {
             ))}
             {cats.length > 3 && (
               <Badge variant="outline" className="text-xs">+{cats.length - 3}</Badge>
+            )}
+          </div>
+        );
+      },
+    },
+    {
+      key: "countries",
+      header: "Countries",
+      cell: (row) => {
+        const countries = row.targetCountries ?? [];
+        if (countries.length === 0) return <span className="text-xs text-muted-foreground">Global</span>;
+        return (
+          <div className="flex flex-wrap gap-0.5">
+            {countries.slice(0, 4).map((c: string) => (
+              <span key={c} className="text-sm" title={getCountryName(c)}>{getCountryFlag(c)}</span>
+            ))}
+            {countries.length > 4 && (
+              <Badge variant="outline" className="text-[10px]">+{countries.length - 4}</Badge>
             )}
           </div>
         );
@@ -424,6 +454,72 @@ export default function AdminFestivalsPage() {
                 </div>
               )}
             </div>
+          </div>
+        </FormField>
+
+        {/* Target Countries Picker */}
+        <FormField
+          label="Target Countries"
+          description="Select which countries this festival applies to. Leave empty to make it global (visible everywhere)."
+        >
+          <div className="space-y-3">
+            {/* Selected countries */}
+            {targetCountries.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {targetCountries.map((code) => (
+                  <Badge
+                    key={code}
+                    variant="secondary"
+                    className="flex items-center gap-1 py-1 pl-2 pr-1 text-sm"
+                  >
+                    {getCountryFlag(code)} {getCountryName(code)}
+                    <button
+                      type="button"
+                      onClick={() => toggleCountry(code)}
+                      className="ml-0.5 rounded-full p-0.5 hover:bg-muted"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </Badge>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setTargetCountries([])}
+                  className="text-xs text-muted-foreground hover:text-foreground"
+                >
+                  Clear all
+                </button>
+              </div>
+            )}
+
+            {/* Country grid */}
+            <div className="max-h-40 overflow-y-auto rounded-lg border border-dashed border-gray-200 p-2">
+              <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-4">
+                {COUNTRIES.map((c) => {
+                  const isSelected = targetCountries.includes(c.code);
+                  return (
+                    <button
+                      key={c.code}
+                      type="button"
+                      onClick={() => toggleCountry(c.code)}
+                      className={cn(
+                        "rounded-lg border px-2 py-1.5 text-left text-xs transition-all",
+                        isSelected
+                          ? "border-primary bg-primary/5 font-medium text-primary"
+                          : "border-gray-200 text-gray-600 hover:border-gray-300 hover:bg-gray-50"
+                      )}
+                    >
+                      {c.flag} {c.name}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            {targetCountries.length === 0 && (
+              <p className="text-xs text-muted-foreground flex items-center gap-1">
+                <Globe className="h-3 w-3" /> Global — this festival will be visible to users in all countries
+              </p>
+            )}
           </div>
         </FormField>
       </FormDialog>

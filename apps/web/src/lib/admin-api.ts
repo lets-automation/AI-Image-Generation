@@ -286,4 +286,40 @@ export const adminApi = {
     get<Array<{ key: string; label: string; group: string; maskedValue: string; source: "db" | "env" | "not_set" }>>("/admin/credentials"),
   updateCredential: (key: string, value: string) =>
     apiClient.put(`/admin/credentials/${key}`, { value }).then((r) => r.data),
+
+  // Showcase Management
+  listShowcaseRequests: (params?: { page?: number; limit?: number; status?: string; contentType?: string }) => {
+    const qs = new URLSearchParams();
+    if (params?.page) qs.set("page", String(params.page));
+    if (params?.limit) qs.set("limit", String(params.limit));
+    if (params?.status) qs.set("status", params.status);
+    if (params?.contentType) qs.set("contentType", params.contentType);
+    const query = qs.toString();
+    return getPaginated<ShowcaseRequestData>(`/admin/showcase${query ? `?${query}` : ""}`);
+  },
+  getShowcaseCounts: () =>
+    get<{ pending: number; approved: number; rejected: number; total: number }>("/admin/showcase/counts"),
+  reviewShowcase: (id: string, body: { decision: "APPROVED" | "REJECTED"; rejectionReason?: string; categoryId?: string; targetCountries?: string[] }) =>
+    post<ShowcaseRequestData>(`/admin/showcase/${id}/review`, body),
 };
+
+export interface ShowcaseRequestData {
+  id: string;
+  userId: string;
+  userName: string;
+  userEmail: string;
+  userCountry: string | null;
+  resultImageUrl: string | null;
+  contentType: "EVENT" | "POSTER";
+  language: string;
+  qualityTier: "BASIC" | "STANDARD" | "PREMIUM";
+  categoryName: string;
+  categoryId: string | null;
+  showcaseStatus: "NONE" | "PENDING" | "APPROVED" | "REJECTED";
+  showcaseCategoryId: string | null;
+  showcaseCategoryName: string | null;
+  showcaseTargetCountries: string[] | null;
+  showcaseRejectionReason: string | null;
+  showcaseReviewedAt: string | null;
+  createdAt: string;
+}

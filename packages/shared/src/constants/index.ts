@@ -4,3 +4,4 @@ export * from "./tiers.js";
 export * from "./limits.js";
 export * from "./orientations.js";
 export * from "./permissions.js";
+export * from "./countries.js";

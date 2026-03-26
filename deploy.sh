@@ -42,7 +42,15 @@ cp -r "$WEB_DIR/.next/static" "$APP_DIR/_next/static"
 echo "🔄 Restarting services..."
 $PM2 restart ep-api
 $PM2 restart ep-web
-$PM2 restart ep-worker || echo "⚠️ ep-worker not found — start it with: pm2 start npm --name ep-worker -- run worker:prod --cwd $API_DIR"
+
+# Worker MUST start from apps/api/ directory so dotenv loads the correct .env
+echo "🔄 Restarting worker (from $API_DIR)..."
+$PM2 delete ep-worker 2>/dev/null || true
+cd "$API_DIR"
+$PM2 start npm --name ep-worker -- run worker:prod
+
+# Save PM2 process list so it survives server reboots
+$PM2 save
 
 echo "✅ Deployment complete!"
 echo "   Test: curl -o /dev/null -w '%{http_code}\n' https://aiimagegenerator.design/"

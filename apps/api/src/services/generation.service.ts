@@ -9,7 +9,7 @@ import {
   ModerationError,
 } from "../utils/errors.js";
 import { logger } from "../utils/logger.js";
-import { TIER_CONFIGS, IDEMPOTENCY, ALL_LANGUAGES, type QualityTier } from "@ep/shared";
+import { TIER_CONFIGS, IDEMPOTENCY, ALL_LANGUAGES, LANGUAGE_COUNTRY_MAP, type QualityTier } from "@ep/shared";
 import { isTierSupported } from "../engine/router.js";
 import { isTierAllowedByCostGuard, recordCreditRevenue } from "../resilience/cost-guard.js";
 import { hasConflicts } from "../engine/layout/collision.js";
@@ -147,6 +147,13 @@ export class GenerationService {
     const generations = [];
     for (const lang of selectedLanguages) {
       const generationHash = this.computeGenerationHash({ ...input, languages: [lang] });
+      const wantsPublic = isPublic ?? false;
+
+      // Auto-populate target countries from language when requesting showcase
+      const showcaseTargetCountries = wantsPublic
+        ? (LANGUAGE_COUNTRY_MAP[lang] ?? [])
+        : null;
+
       const generation = await prisma.generation.create({
         data: {
           userId,
@@ -164,7 +171,9 @@ export class GenerationService {
           baseImageUrl: baseImageUrl ?? null,
           generationHash,
           batchId,
-          isPublic: isPublic ?? false,
+          isPublic: false, // Stays false until admin approves
+          showcaseStatus: wantsPublic ? "PENDING" : "NONE",
+          showcaseTargetCountries: showcaseTargetCountries as any,
         } as any,
       });
       generations.push(generation);
@@ -189,18 +198,49 @@ export class GenerationService {
       await this.storeIdempotencyKey(idempotencyKey, input, generations[0].id);
     }
 
-    // 9. Enqueue all 10 jobs
-    for (const gen of generations) {
-      const jobId = await enqueueGeneration({
-        generationId: gen.id,
-        qualityTier,
-        userId,
+    // 9. Enqueue all jobs — wrap in try/catch to handle Redis failures
+    try {
+      for (const gen of generations) {
+        const jobId = await enqueueGeneration({
+          generationId: gen.id,
+          qualityTier,
+          userId,
+        });
+
+        await prisma.generation.update({
+          where: { id: gen.id },
+          data: { jobId },
+        });
+      }
+    } catch (enqueueErr) {
+      // Enqueue failed (likely Redis issue) — refund credits and mark as FAILED
+      logger.error(
+        { err: enqueueErr, batchId, userId },
+        "Failed to enqueue generation jobs — refunding credits"
+      );
+
+      // Mark all generations in this batch as FAILED
+      await prisma.generation.updateMany({
+        where: { batchId } as any,
+        data: {
+          status: "FAILED",
+          errorMessage: "Failed to queue generation — please try again",
+        },
       });
 
-      await prisma.generation.update({
-        where: { id: gen.id },
-        data: { jobId },
-      });
+      // Refund credits
+      try {
+        await subscriptionService.refundCredit(userId, creditCost, generations[0].id);
+      } catch (refundErr) {
+        logger.error(
+          { err: refundErr, userId, creditCost },
+          "CRITICAL: Failed to refund credits after enqueue failure"
+        );
+      }
+
+      throw new BadRequestError(
+        "Generation service is temporarily unavailable. Credits have been refunded. Please try again."
+      );
     }
 
     logger.info(
@@ -271,35 +311,63 @@ export class GenerationService {
   }
 
   /**
-   * List all public generations with pagination and filters.
+   * List approved public generations with country-based filtering.
+   * Only shows generations that:
+   * 1. Have showcaseStatus = APPROVED
+   * 2. Are COMPLETED
+   * 3. Target the requesting user's country (or have no country restriction)
    */
   async listPublic(
     options: {
       page?: number;
       limit?: number;
-      status?: string;
       contentType?: string;
+      country?: string | null;
     } = {}
   ) {
-    const { page = 1, limit = 20, status, contentType } = options;
+    const { page = 1, limit = 20, contentType, country } = options;
     const skip = (page - 1) * limit;
 
-    const where: Record<string, unknown> = { isPublic: true };
-    if (status) where.status = status;
+    const where: Record<string, unknown> = {
+      showcaseStatus: "APPROVED",
+      status: "COMPLETED",
+      isPublic: true,
+    };
     if (contentType) where.contentType = contentType;
 
-    const [generations, total] = await Promise.all([
-      prisma.generation.findMany({
-        where,
-        orderBy: { createdAt: "desc" },
-        skip,
-        take: limit,
-      }),
-      prisma.generation.count({ where }),
-    ]);
+    // Fetch all matching generations, then filter by country in application code
+    // (Prisma JSON array_contains on nullable fields is tricky, app-level filtering is more reliable)
+    const allGenerations = await prisma.generation.findMany({
+      where,
+      include: {
+        user: { select: { name: true } },
+        template: {
+          select: {
+            name: true,
+            category: { select: { id: true, name: true } },
+          },
+        },
+        showcaseCategory: { select: { id: true, name: true } },
+      } as any,
+      orderBy: { createdAt: "desc" },
+      // Fetch more than needed for country filtering, then paginate in-app
+      take: 500,
+    });
+
+    // Filter by country: show if targetCountries is null/empty (global) or includes user's country
+    const filtered = country
+      ? allGenerations.filter((g: any) => {
+          const targets = g.showcaseTargetCountries as string[] | null;
+          if (!targets || targets.length === 0) return true;
+          return targets.includes(country);
+        })
+      : allGenerations;
+
+    const total = filtered.length;
+    const paginated = filtered.slice(skip, skip + limit);
 
     return {
-      data: generations.map((g) => this.formatResponse(g)),
+      data: paginated.map((g: any) => this.formatPublicResponse(g)),
       meta: {
         page,
         limit,
@@ -486,11 +554,33 @@ export class GenerationService {
       contentType: generation.contentType,
       creditCost: generation.creditCost,
       isPublic: generation.isPublic ?? false,
+      showcaseStatus: (generation as any).showcaseStatus ?? "NONE",
       orientation: generation.orientation ?? null,
       jobId: generation.jobId ?? null,
       resultImageUrl: generation.resultImageUrl ?? null,
       errorMessage: generation.errorMessage ?? null,
       processingMs: generation.processingMs ?? null,
+      createdAt: generation.createdAt instanceof Date
+        ? generation.createdAt.toISOString()
+        : generation.createdAt,
+    };
+  }
+
+  /**
+   * Format a generation for the public feed — includes user name, category info.
+   */
+  private formatPublicResponse(generation: any) {
+    const displayCategory = generation.showcaseCategory ?? generation.template?.category;
+    return {
+      id: generation.id,
+      resultImageUrl: generation.resultImageUrl ?? null,
+      contentType: generation.contentType,
+      language: generation.language,
+      qualityTier: generation.qualityTier,
+      userName: generation.user?.name ?? "Anonymous",
+      categoryName: displayCategory?.name ?? "Uncategorized",
+      categoryId: displayCategory?.id ?? null,
+      templateName: generation.template?.name ?? null,
       createdAt: generation.createdAt instanceof Date
         ? generation.createdAt.toISOString()
         : generation.createdAt,

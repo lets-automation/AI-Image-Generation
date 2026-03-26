@@ -1,6 +1,7 @@
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { v4 as uuidv4 } from "uuid";
+import geoip from "geoip-lite";
 import { prisma } from "../config/database.js";
 import { config } from "../config/index.js";
 import { logger } from "../utils/logger.js";
@@ -27,6 +28,7 @@ interface AuthResult {
     role: UserRole;
     customRole?: { name: string; permissions: string[] } | null;
     avatarUrl: string | null;
+    country: string | null;
     canGenerate: boolean;
     createdAt: Date;
   };
@@ -45,6 +47,7 @@ export class AuthService {
     password: string;
     name: string;
     phone?: string;
+    ipAddress?: string;
   }): Promise<AuthResult> {
     // Check for existing user
     const existing = await prisma.user.findFirst({
@@ -61,6 +64,7 @@ export class AuthService {
     }
 
     const passwordHash = await bcrypt.hash(input.password, this.SALT_ROUNDS);
+    const country = this.detectCountry(input.ipAddress);
 
     const user = await prisma.user.create({
       data: {
@@ -68,7 +72,8 @@ export class AuthService {
         passwordHash,
         name: input.name,
         phone: input.phone,
-      },
+        country,
+      } as any,
     });
 
     const tokens = await this.generateTokens(user.id, user.role, []);
@@ -80,8 +85,9 @@ export class AuthService {
         name: user.name,
         phone: user.phone,
         role: user.role,
-        customRole: null, // New users don't have custom roles yet
+        customRole: null,
         avatarUrl: user.avatarUrl,
+        country: (user as any).country ?? null,
         canGenerate: user.role === "SUPER_ADMIN" ? true : user.canGenerate,
         createdAt: user.createdAt,
       },
@@ -137,6 +143,7 @@ export class AuthService {
         role: user.role,
         customRole: user.customRole,
         avatarUrl: user.avatarUrl,
+        country: (user as any).country ?? null,
         canGenerate: user.role === "SUPER_ADMIN" ? true : user.canGenerate,
         createdAt: user.createdAt,
       },
@@ -148,7 +155,7 @@ export class AuthService {
    * Authenticate via Google OAuth. Verifies the Google ID token,
    * finds or creates the user, and issues JWT tokens.
    */
-  async googleLogin(credential: string): Promise<AuthResult> {
+  async googleLogin(credential: string, ipAddress?: string): Promise<AuthResult> {
     // 1. Verify token with Google
     const res = await fetch(
       `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(credential)}`
@@ -198,6 +205,7 @@ export class AuthService {
     } else if (!user) {
       // Create new user with a random unusable password hash
       const randomHash = await bcrypt.hash(uuidv4(), this.SALT_ROUNDS);
+      const country = this.detectCountry(ipAddress);
       user = await prisma.user.create({
         data: {
           email,
@@ -207,10 +215,11 @@ export class AuthService {
           avatarUrl: picture || null,
           emailVerified: true,
           canGenerate: true,
+          country,
         } as any,
         include: { customRole: { select: { name: true, permissions: true } } },
       });
-      logger.info({ userId: user.id, email }, "New user created via Google OAuth");
+      logger.info({ userId: user.id, email, country }, "New user created via Google OAuth");
     }
 
     if (user!.deletedAt || !user!.isActive) {
@@ -234,6 +243,7 @@ export class AuthService {
         role: user!.role,
         customRole: (user as any)!.customRole,
         avatarUrl: user!.avatarUrl,
+        country: (user as any)!.country ?? null,
         canGenerate: user!.role === "SUPER_ADMIN" ? true : user!.canGenerate,
         createdAt: user!.createdAt,
       },
@@ -302,6 +312,7 @@ export class AuthService {
       role: user.role,
       customRole: user.customRole,
       avatarUrl: user.avatarUrl,
+      country: (user as any).country ?? null,
       canGenerate: user.role === "SUPER_ADMIN" ? true : user.canGenerate,
       createdAt: user.createdAt,
     };
@@ -336,6 +347,33 @@ export class AuthService {
       accessToken,
       refreshToken: refreshTokenValue,
     };
+  }
+
+  /**
+   * Detect country from IP address using geoip-lite (MaxMind GeoLite2 database).
+   * Returns ISO 3166-1 alpha-2 country code or null if detection fails.
+   */
+  private detectCountry(ipAddress?: string): string | null {
+    if (!ipAddress) return null;
+
+    // Strip IPv6 prefix if present (e.g., "::ffff:127.0.0.1" → "127.0.0.1")
+    const cleanIp = ipAddress.replace(/^::ffff:/, "");
+
+    // Skip localhost / private IPs
+    if (cleanIp === "127.0.0.1" || cleanIp === "::1" || cleanIp.startsWith("192.168.") || cleanIp.startsWith("10.")) {
+      return null;
+    }
+
+    try {
+      const geo = geoip.lookup(cleanIp);
+      if (geo?.country) {
+        logger.debug({ ip: cleanIp, country: geo.country }, "Country detected from IP");
+        return geo.country;
+      }
+    } catch (err) {
+      logger.warn({ ip: cleanIp, err }, "GeoIP lookup failed");
+    }
+    return null;
   }
 
   private parseExpiry(expiry: string): number {

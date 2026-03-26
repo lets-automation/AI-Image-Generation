@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Search } from "lucide-react";
+import { PublicFeed } from "@/components/templates/PublicFeed";
 
 export default function EventsPage() {
   const {
@@ -223,6 +224,11 @@ export default function EventsPage() {
               Showing {templates.length} out of {meta.total} templates
             </p>
           )}
+
+          {/* Community Showcase */}
+          <div className="mt-10">
+            <PublicFeed contentType="EVENT" />
+          </div>
         </>
     </div>
   );

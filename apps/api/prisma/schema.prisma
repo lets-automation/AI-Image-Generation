@@ -103,6 +103,13 @@ enum SubscriptionProvider {
   RAZORPAY
 }
 
+enum ShowcaseStatus {
+  NONE
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 // ─── MODELS ───────────────────────────────────────────────
 
 model User {
@@ -118,6 +125,7 @@ model User {
   canGenerate   Boolean   @default(true)
   emailVerified Boolean   @default(false)
   avatarUrl     String?
+  country       String?                     // ISO 3166-1 alpha-2 country code (auto-detected on signup)
   lastLoginAt   DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
@@ -215,6 +223,7 @@ model Category {
   templates    Template[]
   fieldSchemas FieldSchema[]
   festivalLinks FestivalCategory[]
+  showcaseGenerations Generation[] @relation("ShowcaseCategory")
 
   @@index([contentType, isActive])
   @@index([parentId])
@@ -265,6 +274,13 @@ model Generation {
   creditCost      Int
   templateVersion Int?
   isPublic        Boolean          @default(false)
+  showcaseStatus  ShowcaseStatus   @default(NONE)
+  showcaseReviewedBy   String?     // Admin userId who reviewed
+  showcaseReviewedAt   DateTime?
+  showcaseRejectionReason String?
+  showcaseCategoryId   String?     // Admin-overridden category for showcase display
+  /// [ShowcaseTargetCountries]
+  showcaseTargetCountries Json?    // String[] of ISO country codes
   baseImageUrl    String?
   generationHash  String?
   batchId         String?
@@ -278,12 +294,14 @@ model Generation {
 
   user      User       @relation(fields: [userId], references: [id])
   template  Template?  @relation(fields: [templateId], references: [id])
+  showcaseCategory Category? @relation("ShowcaseCategory", fields: [showcaseCategoryId], references: [id])
   downloads Download[]
 
   @@index([userId])
   @@index([userId, status])
   @@index([status])
   @@index([isPublic, status])
+  @@index([showcaseStatus])
   @@index([createdAt])
   @@index([generationHash])
   @@index([batchId])
@@ -409,6 +427,8 @@ model FestivalCalendar {
   visibilityDays Int         @default(7)
   /// [FestivalMetadata]
   metadata       Json?
+  /// [FestivalTargetCountries]
+  targetCountries Json?       // String[] of ISO country codes — null means global
   isActive       Boolean     @default(true)
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt

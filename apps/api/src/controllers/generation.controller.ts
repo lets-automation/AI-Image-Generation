@@ -77,22 +77,32 @@ export class GenerationController {
 
   /**
    * GET /api/v1/generations/public
-   * List all public generations.
+   * List approved public generations, filtered by user's country.
    */
   async listPublic(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const query = (req as Request & { validatedQuery?: Record<string, unknown> }).validatedQuery as {
         page?: number;
         limit?: number;
-        status?: string;
         contentType?: string;
+        country?: string;
       } | undefined;
+
+      // Use country from query param, or try to detect from authenticated user
+      let country = query?.country ?? null;
+      if (!country && req.userId) {
+        const user = await prisma.user.findUnique({
+          where: { id: req.userId },
+          select: { country: true } as any,
+        });
+        country = (user as any)?.country ?? null;
+      }
 
       const result = await generationService.listPublic({
         page: query?.page,
         limit: query?.limit,
-        status: query?.status,
         contentType: query?.contentType,
+        country,
       });
 
       res.json({ success: true, ...result });

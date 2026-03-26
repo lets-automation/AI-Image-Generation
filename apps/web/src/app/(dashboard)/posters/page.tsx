@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Settings2, Search } from "lucide-react";
+import { PublicFeed } from "@/components/templates/PublicFeed";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
 export default function PostersPage() {
@@ -252,6 +253,11 @@ export default function PostersPage() {
               Showing {templates.length} out of {meta.total} templates
             </p>
           )}
+
+          {/* Community Showcase */}
+          <div className="mt-10">
+            <PublicFeed contentType="POSTER" />
+          </div>
         </>
     </div>
   );

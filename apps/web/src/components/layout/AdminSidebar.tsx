@@ -17,6 +17,7 @@ import {
   Settings,
   ArrowLeft,
   Globe,
+  Sparkles,
 } from "lucide-react";
 
 const adminRoutes = [
@@ -28,6 +29,7 @@ const adminRoutes = [
   { href: "/admin/festivals", icon: <CalendarDays />, label: "Festivals", permission: "festivals.read" },
   { href: "/admin/pricing", icon: <Coins />, label: "Pricing", permission: "subscriptions.read" },
   { href: "/admin/models", icon: <Cpu />, label: "AI Models", permission: "models.read" },
+  { href: "/admin/showcase", icon: <Sparkles />, label: "Showcase", permission: "showcase.read" },
   { href: "/admin/moderation", icon: <Shield />, label: "Moderation", permission: "moderation.read" },
   { href: "/admin/users", icon: <Users />, label: "Users", permission: "users.read" },
   { href: "/admin/settings", icon: <Settings />, label: "Settings", permission: "system.config" },

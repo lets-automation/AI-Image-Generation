@@ -12,6 +12,7 @@ import { subscriptionPlanController } from "../../controllers/admin/subscription
 import { userController } from "../../controllers/admin/user.controller.js";
 import { roleController } from "../../controllers/admin/role.controller.js";
 import { generationHistoryController } from "../../controllers/admin/generation-history.controller.js";
+import { showcaseController } from "../../controllers/admin/showcase.controller.js";
 import {
   createCategorySchema,
   updateCategorySchema,
@@ -180,6 +181,7 @@ const createFestivalSchema = z.object({
       tags: z.array(z.string()).optional(),
     })
     .optional(),
+  targetCountries: z.array(z.string().length(2)).optional(), // ISO country codes
   categoryIds: z.array(z.string().cuid()).optional(),
   promotionConfig: z.array(promotionConfigItemSchema).optional(),
 });
@@ -470,7 +472,49 @@ router.patch(
   roleController.assignToUser.bind(roleController)
 );
 
-// Generation History 
+// Showcase Management
+
+const showcaseListQuery = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(25),
+  status: z.enum(["PENDING", "APPROVED", "REJECTED"]).optional(),
+  contentType: z.enum(["EVENT", "POSTER"]).optional(),
+});
+
+const reviewShowcaseSchema = z.object({
+  decision: z.enum(["APPROVED", "REJECTED"]),
+  rejectionReason: z.string().max(500).optional(),
+  categoryId: z.string().cuid().optional(),
+  targetCountries: z.array(z.string().length(2)).optional(),
+});
+
+router.get(
+  "/showcase",
+  requireAdminAccess("showcase.read"),
+  validate({ query: showcaseListQuery }),
+  showcaseController.list.bind(showcaseController)
+);
+
+router.get(
+  "/showcase/counts",
+  requireAdminAccess("showcase.read"),
+  showcaseController.counts.bind(showcaseController)
+);
+
+router.get(
+  "/showcase/:id",
+  requireAdminAccess("showcase.read"),
+  showcaseController.getById.bind(showcaseController)
+);
+
+router.post(
+  "/showcase/:id/review",
+  requireAdminAccess("showcase.write"),
+  validate({ body: reviewShowcaseSchema }),
+  showcaseController.review.bind(showcaseController)
+);
+
+// Generation History
 
 const generationHistoryQuery = z.object({
   page: z.coerce.number().int().min(1).default(1),

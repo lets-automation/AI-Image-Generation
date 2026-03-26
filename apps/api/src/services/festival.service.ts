@@ -9,6 +9,7 @@ interface CreateFestivalInput {
   contentType: ContentType;
   visibilityDays?: number;
   metadata?: Record<string, unknown>;
+  targetCountries?: string[];
   categoryIds?: string[];
   promotionConfig?: PromotionConfigItem[];
 }
@@ -21,6 +22,7 @@ interface UpdateFestivalInput {
   visibilityDays?: number;
   isActive?: boolean;
   metadata?: Record<string, unknown>;
+  targetCountries?: string[];
   categoryIds?: string[];
   promotionConfig?: PromotionConfigItem[];
 }
@@ -82,9 +84,9 @@ export class FestivalService {
 
   /**
    * Get festivals visible to users now — date is within visibility window.
-   * Includes promoted categories for each festival.
+   * Optionally filtered by user's country (festivals with targetCountries).
    */
-  async getVisible(contentType?: ContentType) {
+  async getVisible(contentType?: ContentType, userCountry?: string | null) {
     const now = new Date();
 
     const festivals = await prisma.festivalCalendar.findMany({
@@ -97,12 +99,20 @@ export class FestivalService {
     });
 
     // Filter: show festivals where (date - visibilityDays) <= now <= date + 1 day
+    // AND targetCountries is null (global) or includes user's country
     return festivals.filter((f) => {
       const visStart = new Date(f.date);
       visStart.setDate(visStart.getDate() - f.visibilityDays);
       const visEnd = new Date(f.date);
       visEnd.setDate(visEnd.getDate() + 1);
-      return now >= visStart && now <= visEnd;
+      const inWindow = now >= visStart && now <= visEnd;
+      if (!inWindow) return false;
+
+      // Country filter: null/empty targetCountries = global (show to everyone)
+      const targets = (f as any).targetCountries as string[] | null;
+      if (!targets || targets.length === 0) return true;
+      if (!userCountry) return true; // If user has no country, show all
+      return targets.includes(userCountry);
     });
   }
 
@@ -173,7 +183,8 @@ export class FestivalService {
         contentType: input.contentType,
         visibilityDays: input.visibilityDays ?? 7,
         metadata: (input.metadata as object) ?? {},
-      },
+        targetCountries: input.targetCountries?.length ? input.targetCountries : undefined,
+      } as any,
       include: FESTIVAL_INCLUDE,
     });
 
@@ -202,7 +213,8 @@ export class FestivalService {
         ...(input.visibilityDays !== undefined ? { visibilityDays: input.visibilityDays } : {}),
         ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
         ...(input.metadata !== undefined ? { metadata: input.metadata as object } : {}),
-      },
+        ...(input.targetCountries !== undefined ? { targetCountries: input.targetCountries } : {}),
+      } as any,
     });
 
     // Sync categories if provided

@@ -1,13 +1,25 @@
 import type { Request, Response, NextFunction } from "express";
 import { festivalService } from "../services/festival.service.js";
+import { prisma } from "../config/database.js";
 
 export class FestivalController {
-  // Public 
+  // Public
 
   async getUpcoming(req: Request, res: Response, next: NextFunction) {
     try {
       const contentType = req.query.contentType as "EVENT" | "POSTER" | undefined;
-      const festivals = await festivalService.getVisible(contentType);
+
+      // Try to get user's country for country-targeted festivals
+      let userCountry: string | null = null;
+      if (req.userId) {
+        const user = await prisma.user.findUnique({
+          where: { id: req.userId },
+          select: { country: true } as any,
+        });
+        userCountry = (user as any)?.country ?? null;
+      }
+
+      const festivals = await festivalService.getVisible(contentType, userCountry);
       res.json({ success: true, data: festivals });
     } catch (err) { next(err); }
   }

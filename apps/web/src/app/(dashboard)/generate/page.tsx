@@ -384,10 +384,6 @@ export default function GeneratePage() {
         ]);
         setCategories(cats);
         setDynamicLanguages(langsRes);
-        // Auto-select all languages on first load
-        if (store.selectedLanguages.length === 0 && langsRes.length > 0) {
-          store.selectAllLanguages(langsRes.map((l) => l.code));
-        }
 
         if (templateId) {
           const tmpl = await userApi.getTemplate(templateId);
@@ -803,7 +799,7 @@ export default function GeneratePage() {
                     onClick={() => store.deselectAllLanguages()}
                     className="rounded bg-muted px-2 py-1 text-xs text-muted-foreground hover:bg-muted/80"
                   >
-                    English Only
+                    Clear All
                   </button>
                 </div>
               </div>
@@ -921,17 +917,18 @@ export default function GeneratePage() {
           {/* Community Setting */}
           <Section
             title="Community Showcase"
-            subtitle={store.isPublic ? "Visible to others" : "Keep private"}
+            subtitle={store.isPublic ? "Approval requested" : "Keep private"}
             complete={true}
           >
             <div className="flex items-center justify-between rounded-lg border p-4">
               <div className="flex flex-col gap-1 pr-4">
                 <div className="flex items-center gap-2">
                   <Users className="h-4 w-4 text-muted-foreground" />
-                  <span className="font-medium">Publish to Community Feed</span>
+                  <span className="font-medium">Request Community Showcase</span>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Allow other users to see and get inspired by your generated creative in the public showcase.
+                  Submit your creation for admin review. Once approved, it will appear in the public
+                  showcase for users in relevant countries based on the language you generate in.
                 </p>
               </div>
               <Switch

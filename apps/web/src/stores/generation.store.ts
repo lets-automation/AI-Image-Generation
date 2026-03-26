@@ -174,8 +174,6 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
       const current = state.selectedLanguages;
       const isSelected = current.includes(lang);
       if (isSelected) {
-        // Don't allow deselecting the last language
-        if (current.length <= 1) return state;
         return { selectedLanguages: current.filter((l) => l !== lang) };
       }
       return { selectedLanguages: [...current, lang] };
@@ -183,12 +181,7 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
 
   selectAllLanguages: (allLangs) => set({ selectedLanguages: allLangs ? [...allLangs] : [] }),
 
-  deselectAllLanguages: () =>
-    set((state) => {
-      // Keep at least one language (English as default)
-      if (state.selectedLanguages.length === 0) return state;
-      return { selectedLanguages: ["ENGLISH"] };
-    }),
+  deselectAllLanguages: () => set({ selectedLanguages: [] }),
 
   goToStep: (step) => set({ currentStep: step }),
   nextStep: () => set((s) => ({ currentStep: s.currentStep + 1 })),

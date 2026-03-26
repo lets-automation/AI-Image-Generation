@@ -61,6 +61,32 @@ export interface UserProfile {
   canGenerate: boolean;
   customRole?: { name: string; permissions: string[] } | null;
   avatarUrl: string | null;
+  country: string | null;
+  createdAt: string;
+}
+
+// ─── Showcase DTOs ────────────────────────────────────────────
+
+export type ShowcaseStatusType = "NONE" | "PENDING" | "APPROVED" | "REJECTED";
+
+export interface ShowcaseRequest {
+  id: string;
+  userId: string;
+  userName: string;
+  userEmail: string;
+  userCountry: string | null;
+  resultImageUrl: string | null;
+  contentType: ContentType;
+  language: string;
+  qualityTier: QualityTier;
+  categoryName: string;
+  categoryId: string;
+  showcaseStatus: ShowcaseStatusType;
+  showcaseCategoryId: string | null;
+  showcaseCategoryName: string | null;
+  showcaseTargetCountries: string[] | null;
+  showcaseRejectionReason: string | null;
+  showcaseReviewedAt: string | null;
   createdAt: string;
 }
 
