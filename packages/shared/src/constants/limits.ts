@@ -16,7 +16,7 @@ export const UPLOAD_LIMITS = {
 
 /** Generation constraints */
 export const GENERATION_LIMITS = {
-  MAX_PROMPT_LENGTH: 500,
+  MAX_PROMPT_LENGTH: 5000,
   MIN_PROMPT_LENGTH: 0,
   MAX_FIELD_VALUE_LENGTH: 200,
   MAX_PHONE_LENGTH: 15,
