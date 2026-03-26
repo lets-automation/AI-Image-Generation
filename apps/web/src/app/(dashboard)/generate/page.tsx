@@ -147,6 +147,8 @@ function PreviewPanel({
 
   const imageUrl = template?.imageUrl ?? uploadedImageUrl;
   const tierCfg = TIER_CONFIGS[store.qualityTier];
+  const isCustomUpload = !template && !!uploadedImageUrl;
+  const numLanguages = isCustomUpload ? 1 : Math.max(1, store.selectedLanguages.length);
   const hasTemplate = !!template || !!uploadedImageUrl;
   const hasNoConflicts = store.conflicts.length === 0;
   const hasRemainingGenerations = !genLimits || genLimits.remaining > 0;
@@ -255,47 +257,54 @@ function PreviewPanel({
         </div>
         <div className="mt-2 flex items-center justify-between text-sm">
           <span className="text-muted-foreground">Languages</span>
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span className="inline-flex cursor-help items-center gap-1 font-medium">
-                  <Globe className="h-3.5 w-3.5" />
-                  {store.selectedLanguages.length === dynamicLanguages.length
-                    ? `All ${dynamicLanguages.length}`
-                    : `${store.selectedLanguages.length} of ${dynamicLanguages.length}`}
-                  <Info className="h-3 w-3 text-muted-foreground" />
-                </span>
-              </TooltipTrigger>
-              <TooltipContent side="left" className="max-w-xs">
-                <p className="mb-1 text-xs font-semibold">
-                  {store.selectedLanguages.length === dynamicLanguages.length
-                    ? "Generating in all languages:"
-                    : "Generating in selected languages:"}
-                </p>
-                <div className="flex flex-wrap gap-1">
-                  {store.selectedLanguages.map((lang) => {
-                    const cfg = dynamicLanguages.find((l) => l.code === lang);
-                    return (
-                      <span key={lang} className="inline-block rounded bg-muted px-1.5 py-0.5 text-[10px]">
-                        {cfg?.nativeLabel ?? lang}
-                      </span>
-                    );
-                  })}
-                </div>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
+          {isCustomUpload ? (
+            <span className="inline-flex items-center gap-1 font-medium">
+              <Globe className="h-3.5 w-3.5" />
+              Auto-detect (1)
+            </span>
+          ) : (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="inline-flex cursor-help items-center gap-1 font-medium">
+                    <Globe className="h-3.5 w-3.5" />
+                    {store.selectedLanguages.length === dynamicLanguages.length
+                      ? `All ${dynamicLanguages.length}`
+                      : `${store.selectedLanguages.length} of ${dynamicLanguages.length}`}
+                    <Info className="h-3 w-3 text-muted-foreground" />
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="left" className="max-w-xs">
+                  <p className="mb-1 text-xs font-semibold">
+                    {store.selectedLanguages.length === dynamicLanguages.length
+                      ? "Generating in all languages:"
+                      : "Generating in selected languages:"}
+                  </p>
+                  <div className="flex flex-wrap gap-1">
+                    {store.selectedLanguages.map((lang) => {
+                      const cfg = dynamicLanguages.find((l) => l.code === lang);
+                      return (
+                        <span key={lang} className="inline-block rounded bg-muted px-1.5 py-0.5 text-[10px]">
+                          {cfg?.nativeLabel ?? lang}
+                        </span>
+                      );
+                    })}
+                  </div>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
         </div>
         <Separator className="my-3" />
         <div className="flex items-center justify-between">
           <span className="text-sm font-medium">Cost</span>
           <span className="text-lg font-bold">
-            {tierCfg.defaultCreditCost * (store.selectedLanguages.length || 1)} credits
+            {tierCfg.defaultCreditCost * numLanguages} credits
           </span>
         </div>
-        {store.selectedLanguages.length > 1 && (
+        {!isCustomUpload && numLanguages > 1 && (
           <p className="mt-1 text-[10px] text-muted-foreground text-right">
-            {tierCfg.defaultCreditCost} per language × {store.selectedLanguages.length} languages
+            {tierCfg.defaultCreditCost} per language × {numLanguages} languages
           </p>
         )}
       </div>

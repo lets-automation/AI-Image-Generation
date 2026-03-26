@@ -48,6 +48,7 @@ export class AuthService {
     name: string;
     phone?: string;
     ipAddress?: string;
+    forcedCountry?: string;
   }): Promise<AuthResult> {
     // Check for existing user
     const existing = await prisma.user.findFirst({
@@ -64,7 +65,7 @@ export class AuthService {
     }
 
     const passwordHash = await bcrypt.hash(input.password, this.SALT_ROUNDS);
-    const country = this.detectCountry(input.ipAddress);
+    const country = input.forcedCountry || await this.detectCountry(input.ipAddress);
 
     const user = await prisma.user.create({
       data: {
@@ -98,8 +99,10 @@ export class AuthService {
   async login(input: {
     email: string;
     password: string;
+    ipAddress?: string;
+    forcedCountry?: string;
   }): Promise<AuthResult> {
-    const user = await prisma.user.findUnique({
+    let user = await prisma.user.findUnique({
       where: { email: input.email },
       include: { customRole: { select: { name: true, permissions: true } } }
     });
@@ -126,11 +129,22 @@ export class AuthService {
       throw new UnauthorizedError("Invalid email or password");
     }
 
-    // Update last login
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { lastLoginAt: new Date() },
-    });
+    const newCountry = input.forcedCountry || await this.detectCountry(input.ipAddress);
+    const needsCountryUpdate = newCountry && !(user as any).country;
+
+    // Update last login and potentially country
+    if (needsCountryUpdate) {
+      user = await prisma.user.update({
+        where: { id: user.id },
+        data: { lastLoginAt: new Date(), country: newCountry } as any,
+        include: { customRole: { select: { name: true, permissions: true } } }
+      });
+    } else {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { lastLoginAt: new Date() },
+      });
+    }
 
     const tokens = await this.generateTokens(user.id, user.role, user.customRole?.permissions || []);
 
@@ -155,7 +169,7 @@ export class AuthService {
    * Authenticate via Google OAuth. Verifies the Google ID token,
    * finds or creates the user, and issues JWT tokens.
    */
-  async googleLogin(credential: string, ipAddress?: string): Promise<AuthResult> {
+  async googleLogin(credential: string, ipAddress?: string, forcedCountry?: string): Promise<AuthResult> {
     // 1. Verify token with Google
     const res = await fetch(
       `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(credential)}`
@@ -190,6 +204,8 @@ export class AuthService {
       include: { customRole: { select: { name: true, permissions: true } } },
     });
 
+    const newCountry = forcedCountry || await this.detectCountry(ipAddress);
+
     if (user && !(user as any).googleId) {
       // Link Google account to existing email user
       user = await prisma.user.update({
@@ -198,6 +214,7 @@ export class AuthService {
           googleId,
           avatarUrl: user.avatarUrl || picture || null,
           emailVerified: true,
+          country: (user as any).country || newCountry,
         } as any,
         include: { customRole: { select: { name: true, permissions: true } } },
       });
@@ -205,7 +222,6 @@ export class AuthService {
     } else if (!user) {
       // Create new user with a random unusable password hash
       const randomHash = await bcrypt.hash(uuidv4(), this.SALT_ROUNDS);
-      const country = this.detectCountry(ipAddress);
       user = await prisma.user.create({
         data: {
           email,
@@ -215,11 +231,17 @@ export class AuthService {
           avatarUrl: picture || null,
           emailVerified: true,
           canGenerate: true,
-          country,
+          country: newCountry,
         } as any,
         include: { customRole: { select: { name: true, permissions: true } } },
       });
-      logger.info({ userId: user.id, email, country }, "New user created via Google OAuth");
+      logger.info({ userId: user.id, email, country: newCountry }, "New user created via Google OAuth");
+    } else if (newCountry && !(user as any).country) {
+      user = await prisma.user.update({
+        where: { id: user.id },
+        data: { country: newCountry } as any,
+        include: { customRole: { select: { name: true, permissions: true } } },
+      });
     }
 
     if (user!.deletedAt || !user!.isActive) {
@@ -350,28 +372,40 @@ export class AuthService {
   }
 
   /**
-   * Detect country from IP address using geoip-lite (MaxMind GeoLite2 database).
+   * Detect country from IP address using geoip-lite (MaxMind GeoLite2 database),
+   * falling back to ip-api for better accuracy on Cloudways setups.
    * Returns ISO 3166-1 alpha-2 country code or null if detection fails.
    */
-  private detectCountry(ipAddress?: string): string | null {
+  private async detectCountry(ipAddress?: string): Promise<string | null> {
     if (!ipAddress) return null;
 
     // Strip IPv6 prefix if present (e.g., "::ffff:127.0.0.1" → "127.0.0.1")
     const cleanIp = ipAddress.replace(/^::ffff:/, "");
 
     // Skip localhost / private IPs
-    if (cleanIp === "127.0.0.1" || cleanIp === "::1" || cleanIp.startsWith("192.168.") || cleanIp.startsWith("10.")) {
+    if (cleanIp === "127.0.0.1" || cleanIp === "::1" || cleanIp.startsWith("192.168.") || cleanIp.startsWith("10.") || cleanIp.match(/^172\.(1[6-9]|2\d|3[0-1])\./)) {
       return null;
     }
 
     try {
+      // 1. Try local geoip first
       const geo = geoip.lookup(cleanIp);
       if (geo?.country) {
-        logger.debug({ ip: cleanIp, country: geo.country }, "Country detected from IP");
+        logger.debug({ ip: cleanIp, country: geo.country }, "Country detected from IP (geoip-lite)");
         return geo.country;
       }
+
+      // 2. Fallback to free ip-api (Node 18 native fetch)
+      const res = await fetch(`http://ip-api.com/json/${cleanIp}`);
+      if (res.ok) {
+        const data = await res.json() as { status: string; countryCode: string };
+        if (data.status === "success" && data.countryCode) {
+          logger.debug({ ip: cleanIp, country: data.countryCode }, "Country detected from IP (ip-api fallback)");
+          return data.countryCode;
+        }
+      }
     } catch (err) {
-      logger.warn({ ip: cleanIp, err }, "GeoIP lookup failed");
+      logger.warn({ ip: cleanIp, err }, "GeoIP lookup failed in both local and fallback");
     }
     return null;
   }

@@ -9,7 +9,8 @@ export class AuthController {
   ): Promise<void> {
     try {
       const ipAddress = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.ip;
-      const result = await authService.register({ ...req.body, ipAddress });
+      const forcedCountry = (req.headers["cf-ipcountry"] as string) || (req.headers["x-vercel-ip-country"] as string);
+      const result = await authService.register({ ...req.body, ipAddress, forcedCountry });
       res.status(201).json({
         success: true,
         data: {
@@ -31,7 +32,9 @@ export class AuthController {
     next: NextFunction
   ): Promise<void> {
     try {
-      const result = await authService.login(req.body);
+      const ipAddress = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.ip;
+      const forcedCountry = (req.headers["cf-ipcountry"] as string) || (req.headers["x-vercel-ip-country"] as string);
+      const result = await authService.login({ ...req.body, ipAddress, forcedCountry });
       res.json({
         success: true,
         data: {
@@ -63,7 +66,8 @@ export class AuthController {
       }
 
       const ipAddress = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.ip;
-      const result = await authService.googleLogin(credential, ipAddress);
+      const forcedCountry = (req.headers["cf-ipcountry"] as string) || (req.headers["x-vercel-ip-country"] as string);
+      const result = await authService.googleLogin(credential, ipAddress, forcedCountry);
       res.json({
         success: true,
         data: {
