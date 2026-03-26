@@ -776,14 +776,19 @@ export default function GeneratePage() {
             subtitle={store.prompt ? `${store.prompt.slice(0, 40)}...` : "No prompt — AI will use template style"}
             complete={true}
           >
-            <Textarea
-              value={store.prompt}
-              onChange={(e) => store.setPrompt(e.target.value)}
-              placeholder="Optional — describe the style, mood, or customization you want. Leave empty to let AI decide based on the template."
-              rows={4}
-              maxLength={500}
-            />
-            <p className="mt-1 text-right text-xs text-muted-foreground">{store.prompt.length}/500</p>
+            <div className="flex flex-col gap-2">
+              <Textarea
+                id="generation-prompt"
+                value={store.prompt}
+                onChange={(e) => store.setPrompt(e.target.value)}
+                placeholder="Optional — describe the style, mood, or customization you want. Leave empty to let AI decide based on the template."
+                className="min-h-[120px] resize-none"
+                maxLength={5000}
+              />
+              <p className="text-right text-[11px] text-muted-foreground">
+                {store.prompt.length}/5000
+              </p>
+            </div>
           </Section>
 
           {/* Languages */}
