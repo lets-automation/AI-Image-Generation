@@ -8,8 +8,13 @@ export class AuthController {
     next: NextFunction
   ): Promise<void> {
     try {
-      const ipAddress = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.ip;
+      const xForwardedFor = req.headers["x-forwarded-for"] as string;
+      const xRealIp = req.headers["x-real-ip"] as string;
+      const ipAddress = xForwardedFor?.split(",")[0]?.trim() || xRealIp?.trim() || req.ip;
+      
       const forcedCountry = (req.headers["cf-ipcountry"] as string) || (req.headers["x-vercel-ip-country"] as string);
+      console.log("[REGISTER] Extracting IP:", { xForwardedFor, xRealIp, reqIp: req.ip, finalIp: ipAddress, forcedCountry });
+      
       const result = await authService.register({ ...req.body, ipAddress, forcedCountry });
       res.status(201).json({
         success: true,
@@ -32,8 +37,13 @@ export class AuthController {
     next: NextFunction
   ): Promise<void> {
     try {
-      const ipAddress = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.ip;
+      const xForwardedFor = req.headers["x-forwarded-for"] as string;
+      const xRealIp = req.headers["x-real-ip"] as string;
+      const ipAddress = xForwardedFor?.split(",")[0]?.trim() || xRealIp?.trim() || req.ip;
+      
       const forcedCountry = (req.headers["cf-ipcountry"] as string) || (req.headers["x-vercel-ip-country"] as string);
+      console.log("[LOGIN] Extracting IP:", { xForwardedFor, xRealIp, reqIp: req.ip, finalIp: ipAddress, forcedCountry });
+      
       const result = await authService.login({ ...req.body, ipAddress, forcedCountry });
       res.json({
         success: true,
@@ -65,8 +75,13 @@ export class AuthController {
         return;
       }
 
-      const ipAddress = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.ip;
+      const xForwardedFor = req.headers["x-forwarded-for"] as string;
+      const xRealIp = req.headers["x-real-ip"] as string;
+      const ipAddress = xForwardedFor?.split(",")[0]?.trim() || xRealIp?.trim() || req.ip;
+      
       const forcedCountry = (req.headers["cf-ipcountry"] as string) || (req.headers["x-vercel-ip-country"] as string);
+      console.log("[GOOGLE_LOGIN] Extracting IP:", { xForwardedFor, xRealIp, reqIp: req.ip, finalIp: ipAddress, forcedCountry });
+
       const result = await authService.googleLogin(credential, ipAddress, forcedCountry);
       res.json({
         success: true,
