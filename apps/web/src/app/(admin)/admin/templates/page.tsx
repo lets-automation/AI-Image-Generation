@@ -25,8 +25,9 @@ import {
 } from "@/components/ui/dialog";
 import {
   Plus, MoreHorizontal, Pencil, Power, Trash2,
-  Upload, Image as ImageIcon, Save, X,
+  Upload, Image as ImageIcon, Save, X, FileText,
 } from "lucide-react";
+import type { FieldSchemaData } from "@/lib/admin-api";
 
 interface TemplateData {
   id: string;
@@ -522,6 +523,11 @@ export default function AdminTemplatesPage() {
           />
           <p className="mt-1 text-right text-xs text-muted-foreground">{uploadPrompt.length}/2000</p>
         </FormField>
+        <CategoryFieldsPreview
+          categories={categories}
+          categoryId={uploadCategoryId}
+          contentType={uploadContentType}
+        />
       </FormDialog>
 
       {/* Safe Zone Editor Dialog */}
@@ -703,6 +709,11 @@ export default function AdminTemplatesPage() {
           />
           <p className="mt-1 text-right text-xs text-muted-foreground">{editDetailsPrompt.length}/2000</p>
         </FormField>
+        <CategoryFieldsPreview
+          categories={categories}
+          categoryId={editDetailsCategoryId}
+          contentType={editDetailsContentType}
+        />
       </FormDialog>
 
       <ConfirmDialog
@@ -714,6 +725,82 @@ export default function AdminTemplatesPage() {
         confirmLabel="Delete"
         variant="destructive"
       />
+    </div>
+  );
+}
+
+// ─── Category Fields Preview ──────────────────────────────────
+
+const FIELD_TYPE_LABELS: Record<string, { label: string; color: string }> = {
+  TEXT: { label: "Text", color: "bg-blue-100 text-blue-700" },
+  TEXTAREA: { label: "Textarea", color: "bg-blue-100 text-blue-700" },
+  IMAGE: { label: "Image Upload", color: "bg-purple-100 text-purple-700" },
+  COLOR: { label: "Color", color: "bg-pink-100 text-pink-700" },
+  SELECT: { label: "Select", color: "bg-amber-100 text-amber-700" },
+  NUMBER: { label: "Number", color: "bg-emerald-100 text-emerald-700" },
+  PHONE: { label: "Phone", color: "bg-cyan-100 text-cyan-700" },
+  EMAIL: { label: "Email", color: "bg-cyan-100 text-cyan-700" },
+  URL: { label: "URL", color: "bg-gray-100 text-gray-700" },
+};
+
+function CategoryFieldsPreview({
+  categories,
+  categoryId,
+  contentType,
+}: {
+  categories: CategoryData[];
+  categoryId: string;
+  contentType: string;
+}) {
+  const category = categories.find((c) => c.id === categoryId && c.contentType === contentType);
+  if (!category) return null;
+
+  const fields = category.fieldSchemas ?? [];
+  if (fields.length === 0) {
+    return (
+      <div className="rounded-md border border-dashed border-amber-300 bg-amber-50/50 px-4 py-3 text-sm dark:border-amber-800 dark:bg-amber-950/20">
+        <p className="font-medium text-amber-700 dark:text-amber-400">
+          No fields configured for &quot;{category.name}&quot;
+        </p>
+        <p className="mt-0.5 text-xs text-amber-600 dark:text-amber-500">
+          Go to Categories → {category.name} → Fields to add text, image upload, or phone fields that users fill during generation.
+        </p>
+      </div>
+    );
+  }
+
+  const imageFields = fields.filter((f) => f.fieldType === "IMAGE");
+
+  return (
+    <div className="rounded-md border border-border bg-muted/30 px-4 py-3">
+      <p className="flex items-center gap-1.5 text-sm font-medium">
+        <FileText className="h-3.5 w-3.5 text-muted-foreground" />
+        Category Fields — {category.name}
+        <span className="text-xs font-normal text-muted-foreground">({fields.length} field{fields.length !== 1 ? "s" : ""})</span>
+      </p>
+      <div className="mt-2 space-y-1.5">
+        {fields
+          .sort((a, b) => a.sortOrder - b.sortOrder)
+          .map((field) => {
+            const typeInfo = FIELD_TYPE_LABELS[field.fieldType] ?? { label: field.fieldType, color: "bg-gray-100 text-gray-700" };
+            return (
+              <div key={field.id} className="flex items-center gap-2 text-xs">
+                <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium ${typeInfo.color}`}>
+                  {typeInfo.label}
+                </span>
+                <span className="font-medium text-foreground">{field.label}</span>
+                <span className="text-muted-foreground">({field.fieldKey})</span>
+                {field.isRequired && <span className="text-[10px] text-destructive">required</span>}
+                {field.hasPosition && <span className="text-[10px] text-blue-500">has position</span>}
+              </div>
+            );
+          })}
+      </div>
+      {imageFields.length > 0 && (
+        <p className="mt-2 text-[11px] text-purple-600 dark:text-purple-400">
+          This category has {imageFields.length} image upload field{imageFields.length > 1 ? "s" : ""} — users can upload photos (e.g. logos, portraits) during generation.
+        </p>
+      )}
     </div>
   );
 }
