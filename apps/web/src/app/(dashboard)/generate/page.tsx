@@ -447,6 +447,8 @@ export default function GeneratePage() {
   }, [store]);
 
   const handleSubmit = useCallback(async () => {
+    const isCustomUpload = !store.selectedTemplate && !!store.uploadedImageUrl;
+
     // Validate required fields before submission
     if (!store.selectedTemplate && !store.uploadedImageUrl) {
       toast.error("Please select a template or upload an image");
@@ -456,7 +458,7 @@ export default function GeneratePage() {
       toast.error("Content type not set. Please navigate from Events or Posters page.");
       return;
     }
-    if (!store.selectedCategory) {
+    if (!isCustomUpload && !store.selectedCategory) {
       toast.error("Please select a category");
       return;
     }
