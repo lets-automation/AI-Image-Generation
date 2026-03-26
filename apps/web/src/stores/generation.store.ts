@@ -10,8 +10,21 @@ import type {
   CategoryResponse,
   FieldSchemaResponse,
 } from "@ep/shared";
+import { LANGUAGE_COUNTRY_MAP } from "@ep/shared";
 import { apiClient } from "@/lib/api-client";
+import { useAuthStore } from "@/stores/auth.store";
 import { v4 as uuidv4 } from "uuid";
+
+function getLanguageFromCountry(countryCode?: string | null): string {
+  if (!countryCode) return "en";
+  const upperCountry = countryCode.toUpperCase();
+  for (const [lang, countries] of Object.entries(LANGUAGE_COUNTRY_MAP)) {
+    if ((countries as string[]).includes(upperCountry)) {
+      return lang;
+    }
+  }
+  return "en";
+}
 
 export interface PositionConflict {
   position: Position;
@@ -190,18 +203,22 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
 
   submitGeneration: async () => {
     const state = get();
+    const isCustomUpload = !state.selectedTemplate && !!state.uploadedImageUrl;
 
     // Validate required fields before submitting
-    if (!state.selectedLanguages || state.selectedLanguages.length === 0) {
-      set({ errorMessage: "Please select at least one language.", isSubmitting: false });
-      return;
+    if (!isCustomUpload) {
+      if (!state.selectedLanguages || state.selectedLanguages.length === 0) {
+        set({ errorMessage: "Please select at least one language.", isSubmitting: false });
+        return;
+      }
+      if (!state.selectedCategory) {
+        set({ errorMessage: "Please select a category.", isSubmitting: false });
+        return;
+      }
     }
+
     if (!state.selectedTemplate && !state.uploadedImageUrl) {
       set({ errorMessage: "Please select a template or upload an image.", isSubmitting: false });
-      return;
-    }
-    if (!state.selectedCategory) {
-      set({ errorMessage: "Please select a category.", isSubmitting: false });
       return;
     }
 
@@ -285,13 +302,15 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
           templateId: state.selectedTemplate?.id ?? undefined,
           baseImageUrl: resolvedBaseImageUrl ?? undefined,
           contentType: state.contentType,
-          categoryId: state.selectedCategory?.id,
+          categoryId: isCustomUpload ? undefined : state.selectedCategory?.id,
           qualityTier: state.qualityTier,
           orientation: state.orientation ?? undefined,
           prompt: state.prompt,
           fieldValues: updatedFieldValues,
           positionMap: state.positionMap,
-          languages: state.selectedLanguages,
+          languages: isCustomUpload 
+            ? [getLanguageFromCountry(useAuthStore.getState().user?.country)] 
+            : state.selectedLanguages,
           isPublic: state.isPublic,
         },
         {

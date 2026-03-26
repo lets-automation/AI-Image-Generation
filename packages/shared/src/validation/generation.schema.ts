@@ -28,7 +28,7 @@ export const createGenerationSchema = z
     templateId: z.string().cuid().optional(),
     baseImageUrl: z.string().url("Invalid base image URL").nullable().optional(),
     contentType: contentTypeEnum,
-    categoryId: z.string().cuid("Invalid category ID"),
+    categoryId: z.string().cuid("Invalid category ID").optional(),
     qualityTier: qualityTierEnum,
     orientation: orientationEnum.nullable().optional(), // User-chosen image orientation
     languages: z

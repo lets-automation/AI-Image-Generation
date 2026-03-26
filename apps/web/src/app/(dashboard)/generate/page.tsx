@@ -541,91 +541,93 @@ export default function GeneratePage() {
         {/* Left: Controls */}
         <div className="space-y-3">
           {/* Category */}
-          <Section
-            title="Category"
-            subtitle={store.selectedCategory?.name}
-            complete={!!store.selectedCategory}
-          >
-            <div className="space-y-4">
-              {/* Group categories: parents with children, standalone categories */}
-              {(() => {
-                // Separate parents (with children) from standalone (no children, no parent)
-                const parents = categories.filter((c) => !c.parentId && c.children && c.children.length > 0);
-                const standalone = categories.filter((c) => !c.parentId && (!c.children || c.children.length === 0));
+          {!store.uploadedImageUrl && (
+            <Section
+              title="Category"
+              subtitle={store.selectedCategory?.name}
+              complete={!!store.selectedCategory}
+            >
+              <div className="space-y-4">
+                {/* Group categories: parents with children, standalone categories */}
+                {(() => {
+                  // Separate parents (with children) from standalone (no children, no parent)
+                  const parents = categories.filter((c) => !c.parentId && c.children && c.children.length > 0);
+                  const standalone = categories.filter((c) => !c.parentId && (!c.children || c.children.length === 0));
 
-                return (
-                  <>
-                    {parents.map((parent) => (
-                      <div key={parent.id} className="space-y-2">
-                        <div className="flex items-center gap-2">
-                          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{parent.name}</p>
-                          <div className="flex-1 border-t border-border" />
-                        </div>
-                        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                          {/* Parent itself as an option */}
-                          <button
-                            onClick={() => handleSelectCategory(parent)}
-                            className={cn(
-                              "rounded-lg border p-3 text-left transition-all",
-                              store.selectedCategory?.id === parent.id
-                                ? "border-primary bg-primary/5 ring-1 ring-primary"
-                                : "hover:border-foreground/20"
-                            )}
-                          >
-                            <p className="text-sm font-medium">{parent.name}</p>
-                            {parent.description && (
-                              <p className="mt-0.5 text-xs text-muted-foreground line-clamp-1">{parent.description}</p>
-                            )}
-                          </button>
-                          {/* Sub-categories */}
-                          {parent.children?.map((child) => (
+                  return (
+                    <>
+                      {parents.map((parent) => (
+                        <div key={parent.id} className="space-y-2">
+                          <div className="flex items-center gap-2">
+                            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{parent.name}</p>
+                            <div className="flex-1 border-t border-border" />
+                          </div>
+                          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                            {/* Parent itself as an option */}
                             <button
-                              key={child.id}
-                              onClick={() => handleSelectCategory(child)}
+                              onClick={() => handleSelectCategory(parent)}
                               className={cn(
                                 "rounded-lg border p-3 text-left transition-all",
-                                store.selectedCategory?.id === child.id
+                                store.selectedCategory?.id === parent.id
                                   ? "border-primary bg-primary/5 ring-1 ring-primary"
                                   : "hover:border-foreground/20"
                               )}
                             >
-                              <p className="text-sm font-medium">{child.name}</p>
-                              {child.description && (
-                                <p className="mt-0.5 text-xs text-muted-foreground line-clamp-1">{child.description}</p>
+                              <p className="text-sm font-medium">{parent.name}</p>
+                              {parent.description && (
+                                <p className="mt-0.5 text-xs text-muted-foreground line-clamp-1">{parent.description}</p>
+                              )}
+                            </button>
+                            {/* Sub-categories */}
+                            {parent.children?.map((child) => (
+                              <button
+                                key={child.id}
+                                onClick={() => handleSelectCategory(child)}
+                                className={cn(
+                                  "rounded-lg border p-3 text-left transition-all",
+                                  store.selectedCategory?.id === child.id
+                                    ? "border-primary bg-primary/5 ring-1 ring-primary"
+                                    : "hover:border-foreground/20"
+                                )}
+                              >
+                                <p className="text-sm font-medium">{child.name}</p>
+                                {child.description && (
+                                  <p className="mt-0.5 text-xs text-muted-foreground line-clamp-1">{child.description}</p>
+                                )}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+
+                      {/* Standalone categories (no children and no parent) */}
+                      {standalone.length > 0 && (
+                        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                          {standalone.map((cat) => (
+                            <button
+                              key={cat.id}
+                              onClick={() => handleSelectCategory(cat)}
+                              className={cn(
+                                "rounded-lg border p-3 text-left transition-all",
+                                store.selectedCategory?.id === cat.id
+                                  ? "border-primary bg-primary/5 ring-1 ring-primary"
+                                  : "hover:border-foreground/20"
+                              )}
+                            >
+                              <p className="text-sm font-medium">{cat.name}</p>
+                              {cat.description && (
+                                <p className="mt-0.5 text-xs text-muted-foreground line-clamp-1">{cat.description}</p>
                               )}
                             </button>
                           ))}
                         </div>
-                      </div>
-                    ))}
-
-                    {/* Standalone categories (no children and no parent) */}
-                    {standalone.length > 0 && (
-                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                        {standalone.map((cat) => (
-                          <button
-                            key={cat.id}
-                            onClick={() => handleSelectCategory(cat)}
-                            className={cn(
-                              "rounded-lg border p-3 text-left transition-all",
-                              store.selectedCategory?.id === cat.id
-                                ? "border-primary bg-primary/5 ring-1 ring-primary"
-                                : "hover:border-foreground/20"
-                            )}
-                          >
-                            <p className="text-sm font-medium">{cat.name}</p>
-                            {cat.description && (
-                              <p className="mt-0.5 text-xs text-muted-foreground line-clamp-1">{cat.description}</p>
-                            )}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </>
-                );
-              })()}
-            </div>
-          </Section>
+                      )}
+                    </>
+                  );
+                })()}
+              </div>
+            </Section>
+          )}
 
           {/* Fields & Positions */}
           {store.fieldSchemas.length > 0 && (
@@ -767,65 +769,67 @@ export default function GeneratePage() {
           </Section>
 
           {/* Languages */}
-          <Section
-            title="Languages"
-            subtitle={
-              store.selectedLanguages.length === dynamicLanguages.length
-                ? "All languages"
-                : `${store.selectedLanguages.length} selected`
-            }
-            complete={store.selectedLanguages.length > 0}
-          >
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <p className="text-xs text-muted-foreground">
-                  Select which languages to generate
-                </p>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => store.selectAllLanguages(dynamicLanguages.map((l) => l.code))}
-                    className={cn(
-                      "rounded px-2 py-1 text-xs transition-colors",
-                      store.selectedLanguages.length === dynamicLanguages.length
-                        ? "bg-primary/15 text-primary"
-                        : "bg-muted text-muted-foreground hover:bg-muted/80"
-                    )}
-                  >
-                    Select All
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => store.deselectAllLanguages()}
-                    className="rounded bg-muted px-2 py-1 text-xs text-muted-foreground hover:bg-muted/80"
-                  >
-                    Clear All
-                  </button>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-5">
-                {dynamicLanguages.map((lang) => {
-                  const isSelected = store.selectedLanguages.includes(lang.code);
-                  return (
+          {!store.uploadedImageUrl && (
+            <Section
+              title="Languages"
+              subtitle={
+                store.selectedLanguages.length === dynamicLanguages.length
+                  ? "All languages"
+                  : `${store.selectedLanguages.length} selected`
+              }
+              complete={store.selectedLanguages.length > 0}
+            >
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs text-muted-foreground">
+                    Select which languages to generate
+                  </p>
+                  <div className="flex gap-2">
                     <button
-                      key={lang.code}
                       type="button"
-                      onClick={() => store.toggleLanguage(lang.code)}
+                      onClick={() => store.selectAllLanguages(dynamicLanguages.map((l) => l.code))}
                       className={cn(
-                        "rounded-lg border px-3 py-2 text-left transition-all",
-                        isSelected
-                          ? "border-primary bg-primary/5 ring-1 ring-primary"
-                          : "hover:border-foreground/20"
+                        "rounded px-2 py-1 text-xs transition-colors",
+                        store.selectedLanguages.length === dynamicLanguages.length
+                          ? "bg-primary/15 text-primary"
+                          : "bg-muted text-muted-foreground hover:bg-muted/80"
                       )}
                     >
-                      <p className="text-xs font-medium">{lang.label}</p>
-                      <p className="text-[10px] text-muted-foreground">{lang.nativeLabel}</p>
+                      Select All
                     </button>
-                  );
-                })}
+                    <button
+                      type="button"
+                      onClick={() => store.deselectAllLanguages()}
+                      className="rounded bg-muted px-2 py-1 text-xs text-muted-foreground hover:bg-muted/80"
+                    >
+                      Clear All
+                    </button>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-5">
+                  {dynamicLanguages.map((lang) => {
+                    const isSelected = store.selectedLanguages.includes(lang.code);
+                    return (
+                      <button
+                        key={lang.code}
+                        type="button"
+                        onClick={() => store.toggleLanguage(lang.code)}
+                        className={cn(
+                          "rounded-lg border px-3 py-2 text-left transition-all",
+                          isSelected
+                            ? "border-primary bg-primary/5 ring-1 ring-primary"
+                            : "hover:border-foreground/20"
+                        )}
+                      >
+                        <p className="text-xs font-medium">{lang.label}</p>
+                        <p className="text-[10px] text-muted-foreground">{lang.nativeLabel}</p>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          </Section>
+            </Section>
+          )}
 
           {/* Output Size / Orientation */}
           <Section
