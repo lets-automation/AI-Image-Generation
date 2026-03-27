@@ -20,6 +20,11 @@ import type { Position } from "@ep/shared";
 
 // ─── Types ───────────────────────────────────────────────
 
+/** Field values can be flat (string/number) or grouped arrays for repeatable fields */
+type FieldValueEntry = string | number;
+type GroupedFieldValues = Array<Record<string, FieldValueEntry>>;
+type FieldValues = Record<string, FieldValueEntry | GroupedFieldValues>;
+
 interface CreateGenerationInput {
   userId: string;
   templateId?: string;
@@ -28,7 +33,7 @@ interface CreateGenerationInput {
   categoryId: string;
   qualityTier: QualityTier;
   prompt: string;
-  fieldValues: Record<string, string | number>;
+  fieldValues: FieldValues;
   positionMap: Record<string, string>;
   orientation?: string; // User-chosen: SQUARE, PORTRAIT, LANDSCAPE, STORY, WIDE
   idempotencyKey?: string;
@@ -90,10 +95,23 @@ export class GenerationService {
     }
 
     for (const [key, value] of Object.entries(fieldValues)) {
-      const fieldResult = moderateFieldValue(key, String(value));
-      if (!fieldResult.allowed) {
-        auditService.logModerationBlock(userId, fieldResult.category ?? "unknown", fieldResult.matchedPattern ?? "");
-        throw new ModerationError(fieldResult.reason ?? "Field content blocked");
+      if (Array.isArray(value)) {
+        // Grouped repeatable field — moderate each entry in the group
+        for (const entry of value) {
+          for (const [subKey, subVal] of Object.entries(entry)) {
+            const fieldResult = moderateFieldValue(`${key}.${subKey}`, String(subVal));
+            if (!fieldResult.allowed) {
+              auditService.logModerationBlock(userId, fieldResult.category ?? "unknown", fieldResult.matchedPattern ?? "");
+              throw new ModerationError(fieldResult.reason ?? "Field content blocked");
+            }
+          }
+        }
+      } else {
+        const fieldResult = moderateFieldValue(key, String(value));
+        if (!fieldResult.allowed) {
+          auditService.logModerationBlock(userId, fieldResult.category ?? "unknown", fieldResult.matchedPattern ?? "");
+          throw new ModerationError(fieldResult.reason ?? "Field content blocked");
+        }
       }
     }
 

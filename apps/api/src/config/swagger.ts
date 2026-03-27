@@ -102,7 +102,9 @@ const options: swaggerJSDoc.Options = {
             name: { type: "string" },
             phone: { type: "string", nullable: true },
             role: { type: "string", enum: ["USER", "ADMIN", "SUPER_ADMIN"] },
+            canGenerate: { type: "boolean" },
             avatarUrl: { type: "string", nullable: true },
+            country: { type: "string", nullable: true, description: "ISO 3166-1 alpha-2 country code", example: "IN" },
             createdAt: { type: "string", format: "date-time" },
             _count: {
               type: "object",
@@ -130,6 +132,9 @@ const options: swaggerJSDoc.Options = {
             placeholder: { type: "string", nullable: true },
             defaultValue: { type: "string", nullable: true },
             hasPosition: { type: "boolean", description: "If true, user can choose a position (9-grid) for this field" },
+            isRepeatable: { type: "boolean", description: "If true, this field can be repeated (dynamic entries)" },
+            maxRepeat: { type: "integer", description: "Maximum number of repeatable entries (1-20)", example: 5 },
+            groupKey: { type: "string", nullable: true, description: "Fields sharing same groupKey form a repeatable group", example: "member" },
             validation: {
               type: "object",
               nullable: true,
@@ -587,6 +592,7 @@ const options: swaggerJSDoc.Options = {
                     },
                     name: { type: "string", minLength: 2, maxLength: 100, example: "John Doe" },
                     phone: { type: "string", pattern: "^\\+?[1-9]\\d{7,14}$", example: "+919876543210" },
+                    country: { type: "string", description: "ISO 3166-1 alpha-2 country code", example: "IN", maxLength: 2 },
                   },
                 },
               },
@@ -633,6 +639,7 @@ const options: swaggerJSDoc.Options = {
                   properties: {
                     email: { type: "string", format: "email" },
                     password: { type: "string" },
+                    country: { type: "string", description: "ISO 3166-1 alpha-2 country code (updates user country if provided)", example: "IN" },
                   },
                 },
               },
@@ -784,6 +791,7 @@ const options: swaggerJSDoc.Options = {
                     name: { type: "string", minLength: 2, maxLength: 100 },
                     phone: { type: "string", minLength: 10, maxLength: 15, nullable: true },
                     avatarUrl: { type: "string", format: "uri", nullable: true },
+                    country: { type: "string", description: "ISO 3166-1 alpha-2 country code", example: "IN", maxLength: 2 },
                   },
                 },
               },
@@ -1133,9 +1141,29 @@ const options: swaggerJSDoc.Options = {
                     isPublic: { type: "boolean", default: false, description: "If true, result appears in community showcase" },
                     fieldValues: {
                       type: "object",
-                      additionalProperties: { oneOf: [{ type: "string" }, { type: "number" }] },
-                      description: "Map of fieldKey → value. Keys must match category field schemas.",
-                      example: { "event_name": "Annual Tech Summit", "date": "March 25, 2026" },
+                      additionalProperties: {
+                        oneOf: [
+                          { type: "string" },
+                          { type: "number" },
+                          {
+                            type: "array",
+                            items: {
+                              type: "object",
+                              additionalProperties: { oneOf: [{ type: "string" }, { type: "number" }] },
+                            },
+                            description: "Grouped repeatable field entries",
+                          },
+                        ],
+                      },
+                      description: "Map of fieldKey → value (flat) or groupKey → array of entries (repeatable groups).",
+                      example: {
+                        "event_name": "Annual Tech Summit",
+                        "date": "March 25, 2026",
+                        "member": [
+                          { "member_name": "John", "member_photo": "https://..." },
+                          { "member_name": "Jane", "member_photo": "https://..." },
+                        ],
+                      },
                     },
                     positionMap: {
                       type: "object",

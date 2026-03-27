@@ -9,6 +9,7 @@ import type {
   TemplateResponse,
   CategoryResponse,
   FieldSchemaResponse,
+  FieldValues,
 } from "@ep/shared";
 import { LANGUAGE_COUNTRY_MAP } from "@ep/shared";
 import { apiClient } from "@/lib/api-client";
@@ -44,7 +45,7 @@ export interface GenerationState {
   uploadedImageUrl: string | null;
   selectedCategory: CategoryResponse | null;
   fieldSchemas: FieldSchemaResponse[];
-  fieldValues: Record<string, string | number>;
+  fieldValues: FieldValues;
   positionMap: Record<string, Position>;
   prompt: string;
   qualityTier: QualityTier;
@@ -71,8 +72,12 @@ export interface GenerationState {
   selectTemplate: (template: TemplateResponse) => void;
   setUploadedImage: (file: File, previewUrl: string) => void;
   selectCategory: (category: CategoryResponse) => void;
-  setFieldValue: (key: string, value: string | number) => void;
+  setFieldValue: (key: string, value: string | number | string[]) => void;
   setPosition: (key: string, position: Position) => void;
+  // Repeatable group actions
+  addGroupEntry: (groupKey: string, fieldKeys: string[]) => void;
+  removeGroupEntry: (groupKey: string, index: number) => void;
+  setGroupFieldValue: (groupKey: string, index: number, fieldKey: string, value: string | number) => void;
   setPrompt: (prompt: string) => void;
   setQualityTier: (tier: QualityTier) => void;
   setOrientation: (orientation: Orientation) => void;
@@ -99,7 +104,7 @@ const initialState = {
   uploadedImageUrl: null as string | null,
   selectedCategory: null as CategoryResponse | null,
   fieldSchemas: [] as FieldSchemaResponse[],
-  fieldValues: {} as Record<string, string | number>,
+  fieldValues: {} as FieldValues,
   positionMap: {} as Record<string, Position>,
   prompt: "",
   qualityTier: "BASIC" as QualityTier,
@@ -177,6 +182,29 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
       };
     }),
 
+  addGroupEntry: (groupKey, fieldKeys) =>
+    set((state) => {
+      const current = (state.fieldValues[groupKey] as Array<Record<string, string | number>>) ?? [];
+      const newEntry: Record<string, string | number> = {};
+      for (const k of fieldKeys) newEntry[k] = "";
+      return { fieldValues: { ...state.fieldValues, [groupKey]: [...current, newEntry] } };
+    }),
+
+  removeGroupEntry: (groupKey, index) =>
+    set((state) => {
+      const current = (state.fieldValues[groupKey] as Array<Record<string, string | number>>) ?? [];
+      const updated = current.filter((_, i) => i !== index);
+      return { fieldValues: { ...state.fieldValues, [groupKey]: updated } };
+    }),
+
+  setGroupFieldValue: (groupKey, index, fieldKey, value) =>
+    set((state) => {
+      const current = [...((state.fieldValues[groupKey] as Array<Record<string, string | number>>) ?? [])];
+      if (!current[index]) current[index] = {};
+      current[index] = { ...current[index], [fieldKey]: value };
+      return { fieldValues: { ...state.fieldValues, [groupKey]: current } };
+    }),
+
   setPrompt: (prompt) => set({ prompt }),
   setQualityTier: (tier) => set({ qualityTier: tier }),
   setOrientation: (orientation) => set({ orientation }),
@@ -228,31 +256,61 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
       // 1. Upload any local "blob:" logos to the backend first
       const updatedFieldValues = { ...state.fieldValues };
 
+      async function uploadBlobUrl(blobUrl: string): Promise<string> {
+        const response = await fetch(blobUrl);
+        const blob = await response.blob();
+        const formData = new FormData();
+        formData.append("logo", blob, "logo.png");
+        const uploadRes = await apiClient.post<{ success: boolean; data: { url: string } }>(
+          "/users/upload-logo",
+          formData,
+          { headers: { "Content-Type": "multipart/form-data" } }
+        );
+        if (uploadRes.data?.data?.url) return uploadRes.data.data.url;
+        throw new Error("Upload returned no URL");
+      }
+
       for (const [key, value] of Object.entries(updatedFieldValues)) {
         if (typeof value === "string" && value.startsWith("blob:")) {
           try {
-            // Fetch the blob from the browser memory
-            const response = await fetch(value);
-            const blob = await response.blob();
-
-            // Create form data for upload
-            const formData = new FormData();
-            formData.append("logo", blob, "logo.png");
-
-            // Upload to backend
-            const uploadRes = await apiClient.post<{ success: boolean; data: { url: string } }>(
-              "/users/upload-logo",
-              formData,
-              { headers: { "Content-Type": "multipart/form-data" } }
-            );
-
-            // Replace the blob URL with the Cloudinary URL
-            if (uploadRes.data?.data?.url) {
-              updatedFieldValues[key] = uploadRes.data.data.url;
-            }
+            updatedFieldValues[key] = await uploadBlobUrl(value);
           } catch (err) {
             console.error(`Failed to upload logo for field ${key}`, err);
             throw new Error(`Failed to upload logo. Please try selecting the logo again.`);
+          }
+        } else if (Array.isArray(value)) {
+          // If it's an array of objects (GroupedFieldValues), iterate through them.
+          if (value.length > 0 && typeof value[0] === 'object' && value[0] !== null) {
+            const updatedGroup = [...(value as Array<Record<string, any>>)];
+            for (let i = 0; i < updatedGroup.length; i++) {
+              const entry = { ...(updatedGroup[i]) };
+              for (const [subKey, subVal] of Object.entries(entry)) {
+                if (typeof subVal === "string" && subVal.startsWith("blob:")) {
+                  try {
+                    entry[subKey] = await uploadBlobUrl(subVal);
+                  } catch (err) {
+                    console.error(`Failed to upload logo for ${key}[${i}].${subKey}`, err);
+                    throw new Error(`Failed to upload image. Please try again.`);
+                  }
+                }
+              }
+              updatedGroup[i] = entry;
+            }
+            updatedFieldValues[key] = updatedGroup;
+          } else {
+            // It's an array of strings (Single repeatable field)
+            const updatedArray = [...(value as string[])];
+            for (let i = 0; i < updatedArray.length; i++) {
+              if (updatedArray[i].startsWith("blob:")) {
+                try {
+                  updatedArray[i] = await uploadBlobUrl(updatedArray[i]);
+                } catch (err) {
+                  console.error(`Failed to upload logo for ${key}[${i}]`, err);
+                  throw new Error(`Failed to upload image. Please try again.`);
+                }
+              }
+            }
+            updatedFieldValues[key] = updatedArray;
           }
         }
       }

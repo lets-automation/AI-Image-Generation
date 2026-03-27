@@ -23,6 +23,11 @@ const contentTypeEnum = z.enum(["EVENT", "POSTER"]);
 
 const orientationEnum = z.enum(["SQUARE", "PORTRAIT", "LANDSCAPE", "STORY", "WIDE"]);
 
+const fieldValueSchema = z.union([
+  z.string().max(GENERATION_LIMITS.MAX_FIELD_VALUE_LENGTH),
+  z.number(),
+]);
+
 export const createGenerationSchema = z
   .object({
     templateId: z.string().cuid().optional(),
@@ -48,8 +53,9 @@ export const createGenerationSchema = z
     fieldValues: z.record(
       z.string(),
       z.union([
-        z.string().max(GENERATION_LIMITS.MAX_FIELD_VALUE_LENGTH),
-        z.number(),
+        fieldValueSchema,
+        z.array(fieldValueSchema),
+        z.array(z.record(z.string(), fieldValueSchema)),
       ])
     ),
     positionMap: z.record(z.string(), positionEnum),

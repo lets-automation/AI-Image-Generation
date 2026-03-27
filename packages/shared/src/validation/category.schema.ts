@@ -77,6 +77,9 @@ export const createFieldSchemaInput = z.object({
   placeholder: z.string().max(200).optional(),
   defaultValue: z.string().max(200).optional(),
   hasPosition: z.boolean().default(false),
+  isRepeatable: z.boolean().default(false),
+  maxRepeat: z.number().int().min(1).max(20).default(1),
+  groupKey: z.string().min(2).max(50).regex(/^[a-z][a-z0-9_]*$/, "Group key must be snake_case").optional().nullable(),
   validation: fieldValidationSchema,
   displayConfig: fieldDisplayConfigSchema,
 });

@@ -92,6 +92,11 @@ export interface ShowcaseRequest {
 
 // ─── Generation DTOs ───────────────────────────────────────
 
+/** Field values can be flat (string/number), array of strings, or grouped arrays for repeatable fields */
+export type FieldValueEntry = string | number | string[];
+export type GroupedFieldValues = Array<Record<string, FieldValueEntry>>;
+export type FieldValues = Record<string, FieldValueEntry | GroupedFieldValues>;
+
 export interface CreateGenerationRequest {
   templateId?: string;
   baseImageUrl?: string;
@@ -101,7 +106,7 @@ export interface CreateGenerationRequest {
   /** @deprecated All 10 languages generated automatically */
   language?: Language;
   prompt: string;
-  fieldValues: Record<string, string | number>;
+  fieldValues: FieldValues;
   positionMap: Record<string, Position>;
 }
 
@@ -173,6 +178,9 @@ export interface FieldSchemaResponse {
   placeholder: string | null;
   defaultValue: string | null;
   hasPosition: boolean;
+  isRepeatable: boolean;
+  maxRepeat: number;
+  groupKey: string | null;
   validation: FieldValidation | null;
   displayConfig: FieldDisplayConfig | null;
 }

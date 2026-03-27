@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/collapsible";
 import {
   Plus, MoreHorizontal, Pencil, Trash2, Power,
-  ChevronDown, Layers, FolderTree, CornerDownRight,
+  ChevronDown, Layers, FolderTree, CornerDownRight, Repeat, Package,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -87,15 +87,29 @@ export default function AdminCategoriesPage() {
   const [editDescription, setEditDescription] = useState("");
   const [editParentId, setEditParentId] = useState<string | null>(null);
 
-  // Field form
+  // Field form (for regular non-repeatable fields)
   const [fieldKey, setFieldKey] = useState("");
   const [fieldLabel, setFieldLabel] = useState("");
   const [fieldType, setFieldType] = useState<string>("TEXT");
   const [fieldRequired, setFieldRequired] = useState(false);
   const [fieldHasPosition, setFieldHasPosition] = useState(false);
   const [fieldPlaceholder, setFieldPlaceholder] = useState("");
+  const [fieldIsRepeatable, setFieldIsRepeatable] = useState(false);
+  const [fieldMaxRepeat, setFieldMaxRepeat] = useState(5);
+  const [fieldGroupKey, setFieldGroupKey] = useState("");
   const [editingFieldId, setEditingFieldId] = useState<string | null>(null);
   const [fieldCategoryId, setFieldCategoryId] = useState<string | null>(null);
+
+  // Repeatable group form
+  const [showGroupForm, setShowGroupForm] = useState(false);
+  const [groupCategoryId, setGroupCategoryId] = useState<string | null>(null);
+  const [groupName, setGroupName] = useState(""); // e.g. "Family Member"
+  const [groupKey, setGroupKey] = useState(""); // e.g. "member"
+  const [groupMaxRepeat, setGroupMaxRepeat] = useState(10);
+  const [groupFields, setGroupFields] = useState<Array<{
+    fieldKey: string; label: string; fieldType: string; isRequired: boolean;
+    hasPosition: boolean; placeholder: string;
+  }>>([]);
 
   // Derived: all categories flattened for lookups
   const allFlat = useMemo(() => flattenCategories(categories), [categories]);
@@ -236,14 +250,67 @@ export default function AdminCategoriesPage() {
   function resetFieldForm() {
     setFieldKey(""); setFieldLabel(""); setFieldType("TEXT");
     setFieldRequired(false); setFieldHasPosition(false);
-    setFieldPlaceholder(""); setEditingFieldId(null);
-    setFieldCategoryId(null); setShowFieldForm(false);
+    setFieldPlaceholder(""); setFieldIsRepeatable(false);
+    setFieldMaxRepeat(5); setFieldGroupKey("");
+    setEditingFieldId(null); setFieldCategoryId(null);
+    setShowFieldForm(false);
   }
 
   function startAddField(catId: string) {
     resetFieldForm();
     setFieldCategoryId(catId);
+    setFieldIsRepeatable(false);
     setShowFieldForm(true);
+  }
+
+  function startAddGroup(catId: string) {
+    setGroupCategoryId(catId);
+    setGroupName("");
+    setGroupKey("");
+    setGroupMaxRepeat(10);
+    setGroupFields([{ fieldKey: "", label: "", fieldType: "TEXT", isRequired: false, hasPosition: false, placeholder: "" }]);
+    setShowGroupForm(true);
+  }
+
+  function addGroupFieldRow() {
+    setGroupFields((prev) => [...prev, { fieldKey: "", label: "", fieldType: "TEXT", isRequired: false, hasPosition: false, placeholder: "" }]);
+  }
+
+  function removeGroupFieldRow(idx: number) {
+    setGroupFields((prev) => prev.filter((_, i) => i !== idx));
+  }
+
+  function updateGroupFieldRow(idx: number, patch: Partial<typeof groupFields[0]>) {
+    setGroupFields((prev) => prev.map((f, i) => i === idx ? { ...f, ...patch } : f));
+  }
+
+  async function handleSaveGroup() {
+    if (!groupCategoryId || !groupKey || groupFields.length === 0) return;
+    const targetCat = findCategoryById(categories, groupCategoryId);
+    const baseSort = targetCat?.fieldSchemas.length ?? 0;
+    try {
+      for (let i = 0; i < groupFields.length; i++) {
+        const gf = groupFields[i];
+        if (!gf.fieldKey || !gf.label) continue;
+        await adminApi.addField(groupCategoryId, {
+          fieldKey: gf.fieldKey,
+          label: gf.label,
+          fieldType: gf.fieldType,
+          isRequired: gf.isRequired,
+          hasPosition: gf.hasPosition,
+          placeholder: gf.placeholder || undefined,
+          isRepeatable: true,
+          maxRepeat: groupMaxRepeat,
+          groupKey,
+          sortOrder: baseSort + i,
+        });
+      }
+      toast.success(`Repeatable group "${groupName || groupKey}" created with ${groupFields.length} fields`);
+      setShowGroupForm(false);
+      loadCategories();
+    } catch {
+      toast.error("Failed to create repeatable group");
+    }
   }
 
   function startEditField(catId: string, field: FieldSchemaData) {
@@ -255,6 +322,9 @@ export default function AdminCategoriesPage() {
     setFieldRequired(field.isRequired);
     setFieldHasPosition(field.hasPosition);
     setFieldPlaceholder(field.placeholder || "");
+    setFieldIsRepeatable(field.isRepeatable);
+    setFieldMaxRepeat(field.maxRepeat);
+    setFieldGroupKey(field.groupKey || "");
     setShowFieldForm(true);
   }
 
@@ -265,6 +335,9 @@ export default function AdminCategoriesPage() {
       fieldKey, label: fieldLabel, fieldType,
       isRequired: fieldRequired, hasPosition: fieldHasPosition,
       placeholder: fieldPlaceholder || undefined,
+      isRepeatable: fieldIsRepeatable,
+      maxRepeat: fieldIsRepeatable ? fieldMaxRepeat : 1,
+      groupKey: fieldIsRepeatable && fieldGroupKey ? fieldGroupKey : null,
       sortOrder: editingFieldId ? undefined : (targetCat?.fieldSchemas.length ?? 0),
     };
     try {
@@ -381,14 +454,24 @@ export default function AdminCategoriesPage() {
                     <Plus className="mr-1 h-3 w-3" /> Sub-category
                   </Button>
                 )}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-8 text-xs"
-                  onClick={(e) => { e.stopPropagation(); startAddField(cat.id); }}
-                >
-                  <Plus className="mr-1 h-3 w-3" /> Field
-                </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+                    <Button variant="outline" size="sm" className="h-8 text-xs">
+                      <Plus className="mr-1 h-3 w-3" /> Add
+                      <ChevronDown className="ml-1 h-3 w-3" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={() => startAddField(cat.id)}>
+                      <Plus className="mr-2 h-4 w-4" /> Single Field
+                      <span className="ml-auto text-[10px] text-muted-foreground">e.g. name, phone</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => startAddGroup(cat.id)}>
+                      <Repeat className="mr-2 h-4 w-4" /> Repeatable Group
+                      <span className="ml-auto text-[10px] text-muted-foreground">e.g. family members</span>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button variant="ghost" size="icon" className="h-8 w-8">
@@ -415,43 +498,125 @@ export default function AdminCategoriesPage() {
           <CollapsibleContent>
             <CardContent className="border-t border-border px-5 py-4">
               {cat.fieldSchemas.length > 0 ? (
-                <div className="space-y-2">
-                  {cat.fieldSchemas.map((field, idx) => (
-                    <div
-                      key={field.id}
-                      className="flex items-center justify-between rounded-lg border px-4 py-2.5"
-                    >
-                      <div className="flex items-center gap-3">
-                        <span className="flex h-6 w-6 items-center justify-center rounded bg-muted text-xs font-bold text-muted-foreground">
-                          {idx + 1}
-                        </span>
-                        <div>
-                          <p className="text-sm font-medium">
-                            {field.label}
-                            {field.isRequired && <span className="ml-1 text-destructive">*</span>}
-                          </p>
-                          <div className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
-                            <code className="rounded bg-muted px-1 py-0.5 font-mono text-[10px]">{field.fieldKey}</code>
-                            <Badge variant="secondary" className="text-[10px]">{field.fieldType}</Badge>
-                            {field.hasPosition && <Badge variant="outline" className="text-[10px]">position</Badge>}
+                <div className="space-y-4">
+                  {/* Regular (non-repeatable) fields */}
+                  {(() => {
+                    const regularFields = cat.fieldSchemas.filter((f) => !f.groupKey);
+                    if (regularFields.length === 0) return null;
+                    return (
+                      <div className="space-y-2">
+                        {regularFields.map((field, idx) => (
+                          <div
+                            key={field.id}
+                            className="flex items-center justify-between rounded-lg border px-4 py-2.5"
+                          >
+                            <div className="flex items-center gap-3">
+                              <span className="flex h-6 w-6 items-center justify-center rounded bg-muted text-xs font-bold text-muted-foreground">
+                                {idx + 1}
+                              </span>
+                              <div>
+                                <p className="text-sm font-medium">
+                                  {field.label}
+                                  {field.isRequired && <span className="ml-1 text-destructive">*</span>}
+                                </p>
+                                <div className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+                                  <code className="rounded bg-muted px-1 py-0.5 font-mono text-[10px]">{field.fieldKey}</code>
+                                  <Badge variant="secondary" className="text-[10px]">{field.fieldType}</Badge>
+                                  {field.hasPosition && <Badge variant="outline" className="text-[10px]">position</Badge>}
+                                </div>
+                              </div>
+                            </div>
+                            <div className="flex gap-1">
+                              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => startEditField(cat.id, field)}>
+                                <Pencil className="h-3 w-3" />
+                              </Button>
+                              <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => setDeleteFieldTarget(field.id)}>
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
+
+                  {/* Repeatable groups */}
+                  {(() => {
+                    const groups = new Map<string, FieldSchemaData[]>();
+                    for (const f of cat.fieldSchemas) {
+                      if (f.groupKey) {
+                        if (!groups.has(f.groupKey)) groups.set(f.groupKey, []);
+                        groups.get(f.groupKey)!.push(f);
+                      }
+                    }
+                    if (groups.size === 0) return null;
+                    return Array.from(groups.entries()).map(([gKey, fields]) => {
+                      const groupDisplayName = gKey.replace(/_/g, " ");
+                      return (
+                        <div key={gKey} className="rounded-lg border-2 border-blue-200 bg-blue-50/40 dark:border-blue-800 dark:bg-blue-950/20 overflow-hidden">
+                          {/* Group header */}
+                          <div className="flex items-center justify-between border-b border-blue-200 bg-blue-100/60 px-4 py-3 dark:border-blue-800 dark:bg-blue-900/30">
+                            <div className="flex items-center gap-2.5">
+                              <div className="flex h-7 w-7 items-center justify-center rounded-md bg-blue-500/15">
+                                <Repeat className="h-3.5 w-3.5 text-blue-600" />
+                              </div>
+                              <div>
+                                <p className="text-sm font-semibold capitalize text-blue-800 dark:text-blue-300">{groupDisplayName}</p>
+                                <p className="text-[11px] text-blue-600/80 dark:text-blue-400/70">
+                                  Repeatable group &middot; {fields.length} field{fields.length !== 1 ? "s" : ""} per entry &middot; max {fields[0].maxRepeat} entries
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                          {/* Group fields */}
+                          <div className="space-y-1.5 p-3">
+                            {fields.map((field, fIdx) => (
+                              <div
+                                key={field.id}
+                                className="flex items-center justify-between rounded-md border border-blue-200/80 bg-white px-3 py-2 dark:border-blue-800/60 dark:bg-gray-900"
+                              >
+                                <div className="flex items-center gap-2.5">
+                                  <span className="flex h-5 w-5 items-center justify-center rounded bg-blue-100 text-[10px] font-bold text-blue-600 dark:bg-blue-900 dark:text-blue-400">
+                                    {fIdx + 1}
+                                  </span>
+                                  <div>
+                                    <p className="text-sm font-medium">
+                                      {field.label}
+                                      {field.isRequired && <span className="ml-1 text-destructive">*</span>}
+                                    </p>
+                                    <div className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+                                      <code className="rounded bg-muted px-1 py-0.5 font-mono text-[10px]">{field.fieldKey}</code>
+                                      <Badge variant="secondary" className="text-[10px]">{field.fieldType}</Badge>
+                                      {field.hasPosition && <Badge variant="outline" className="text-[10px]">position</Badge>}
+                                    </div>
+                                  </div>
+                                </div>
+                                <div className="flex gap-1">
+                                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => startEditField(cat.id, field)}>
+                                    <Pencil className="h-3 w-3" />
+                                  </Button>
+                                  <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => setDeleteFieldTarget(field.id)}>
+                                    <Trash2 className="h-3 w-3" />
+                                  </Button>
+                                </div>
+                              </div>
+                            ))}
                           </div>
                         </div>
-                      </div>
-                      <div className="flex gap-1">
-                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => startEditField(cat.id, field)}>
-                          <Pencil className="h-3 w-3" />
-                        </Button>
-                        <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => setDeleteFieldTarget(field.id)}>
-                          <Trash2 className="h-3 w-3" />
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
+                      );
+                    });
+                  })()}
                 </div>
               ) : (
-                <p className="py-6 text-center text-sm text-muted-foreground">
-                  No fields yet. Add fields to define what users fill in during generation.
-                </p>
+                <div className="flex flex-col items-center py-8 text-center">
+                  <div className="mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-muted">
+                    <Plus className="h-5 w-5 text-muted-foreground" />
+                  </div>
+                  <p className="text-sm font-medium text-muted-foreground">No fields configured</p>
+                  <p className="mt-1 max-w-xs text-xs text-muted-foreground/70">
+                    Use the &quot;Add&quot; button above to create single fields (name, phone, etc.) or repeatable groups (family members, speakers, etc.)
+                  </p>
+                </div>
               )}
             </CardContent>
           </CollapsibleContent>
@@ -636,18 +801,37 @@ export default function AdminCategoriesPage() {
         </FormField>
       </FormDialog>
 
-      {/* Field Form Dialog */}
+      {/* Field Form Dialog — used for both regular fields and editing grouped fields */}
       <FormDialog
         open={showFieldForm}
         onOpenChange={(open) => { if (!open) resetFieldForm(); }}
-        title={editingFieldId ? "Edit Field" : "Add Field"}
-        description={editingFieldId
-          ? "Changes apply to future generations only."
-          : "Define an input field for this category. Each field maps to a template placeholder."
+        title={
+          editingFieldId && fieldIsRepeatable
+            ? `Edit Group Field`
+            : editingFieldId
+              ? "Edit Field"
+              : "Add Field"
+        }
+        description={
+          editingFieldId && fieldIsRepeatable
+            ? `This field belongs to the "${fieldGroupKey}" repeatable group (max ${fieldMaxRepeat} entries). You can change label, type, and other settings.`
+            : editingFieldId
+              ? "Changes apply to future generations only."
+              : "Define an input field for this category. Each field maps to a template placeholder."
         }
         onSubmit={handleSaveField}
         submitLabel={editingFieldId ? "Update" : "Add Field"}
       >
+        {/* Group context banner for grouped fields */}
+        {editingFieldId && fieldIsRepeatable && (
+          <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm dark:border-blue-800 dark:bg-blue-950/30">
+            <Package className="h-4 w-4 text-blue-600 shrink-0" />
+            <span className="text-blue-700 dark:text-blue-400">
+              Part of <strong className="capitalize">{fieldGroupKey.replace(/_/g, " ")}</strong> group &middot; max {fieldMaxRepeat} entries per generation
+            </span>
+          </div>
+        )}
+
         <div className="grid grid-cols-2 gap-4">
           <FormField label="Field Key" required description="Lowercase identifier used in template placeholders.">
             <Input
@@ -673,9 +857,11 @@ export default function AdminCategoriesPage() {
               </SelectContent>
             </Select>
           </FormField>
-          <FormField label="Placeholder" description="Hint text shown when the input is empty.">
-            <Input value={fieldPlaceholder} onChange={(e) => setFieldPlaceholder(e.target.value)} placeholder="e.g. Enter your business name" />
-          </FormField>
+          {!["IMAGE", "COLOR", "SELECT"].includes(fieldType) && (
+            <FormField label="Placeholder" description="Hint text shown when the input is empty.">
+              <Input value={fieldPlaceholder} onChange={(e) => setFieldPlaceholder(e.target.value)} placeholder="e.g. Enter your business name" />
+            </FormField>
+          )}
         </div>
         <div className="flex items-center gap-6">
           <label className="flex items-center gap-2 text-sm">
@@ -686,7 +872,190 @@ export default function AdminCategoriesPage() {
             <Checkbox checked={fieldHasPosition} onCheckedChange={(v) => setFieldHasPosition(!!v)} />
             <span>Has Position Selector</span>
           </label>
+          <label className="flex items-center gap-2 text-sm">
+            <Checkbox checked={fieldIsRepeatable} onCheckedChange={(v) => setFieldIsRepeatable(!!v)} disabled={!!editingFieldId && !!fieldGroupKey} />
+            <span>Allow Multiple Values</span>
+          </label>
         </div>
+
+        {/* Allow editing max repeat when editing a grouped field, or when a single field is repeatable */}
+        {fieldIsRepeatable && (
+          <div className="rounded-lg border border-dashed border-blue-200 bg-blue-50/30 p-4 dark:border-blue-800 dark:bg-blue-950/10">
+            <FormField label="Max Entries" description={fieldGroupKey ? "Change how many entries users can add in this group. This updates for all fields in the group." : "Change how many values users can add for this field."}>
+              <Input
+                type="number"
+                min={1}
+                max={20}
+                value={fieldMaxRepeat}
+                onChange={(e) => setFieldMaxRepeat(Math.max(1, Math.min(20, Number(e.target.value) || 1)))}
+              />
+            </FormField>
+          </div>
+        )}
+      </FormDialog>
+
+      {/* Repeatable Group Dialog */}
+      <FormDialog
+        open={showGroupForm}
+        onOpenChange={(open) => { if (!open) setShowGroupForm(false); }}
+        title="Create Repeatable Group"
+        description="Define a group of fields that users can repeat multiple times. For example: a 'Family Member' group with photo, name, and role — users add as many members as they need."
+        onSubmit={handleSaveGroup}
+        submitLabel={`Create Group${groupFields.filter(f => f.fieldKey && f.label).length > 0 ? ` (${groupFields.filter(f => f.fieldKey && f.label).length} fields)` : ""}`}
+      >
+        {/* Step 1: Group identity */}
+        <div className="rounded-lg border bg-muted/30 p-4 space-y-3">
+          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Step 1 — Name your group</p>
+          <div className="grid grid-cols-[1fr_100px] gap-3">
+            <div>
+              <label className="text-xs font-medium">Group Name <span className="text-destructive">*</span></label>
+              <Input
+                value={groupName}
+                onChange={(e) => {
+                  setGroupName(e.target.value);
+                  setGroupKey(e.target.value.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/(^_|_$)/g, ""));
+                }}
+                placeholder="e.g. Family Member, Speaker, Product"
+                required
+                className="mt-1"
+              />
+              {groupKey && (
+                <p className="mt-1 text-[10px] text-muted-foreground">
+                  Key: <code className="rounded bg-muted px-1 py-0.5 font-mono">{groupKey}</code>
+                </p>
+              )}
+            </div>
+            <div>
+              <label className="text-xs font-medium">Max Entries</label>
+              <Input
+                type="number"
+                min={1}
+                max={20}
+                value={groupMaxRepeat}
+                onChange={(e) => setGroupMaxRepeat(Math.max(1, Math.min(20, Number(e.target.value) || 1)))}
+                className="mt-1"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Step 2: Fields */}
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Step 2 — Define fields per entry</p>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                Each time a user adds a &quot;{groupName || "..."}&quot;, they will fill these fields
+              </p>
+            </div>
+            <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={addGroupFieldRow}>
+              <Plus className="mr-1 h-3 w-3" /> Add Field
+            </Button>
+          </div>
+
+          {groupFields.map((gf, idx) => (
+            <div key={idx} className="rounded-lg border bg-card p-3 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-5 w-5 items-center justify-center rounded bg-primary/10 text-[10px] font-bold text-primary">
+                    {idx + 1}
+                  </span>
+                  <span className="text-xs font-medium text-muted-foreground">
+                    {gf.label || `Field ${idx + 1}`}
+                  </span>
+                </div>
+                {groupFields.length > 1 && (
+                  <Button type="button" variant="ghost" size="icon" className="h-6 w-6 text-destructive hover:text-destructive" onClick={() => removeGroupFieldRow(idx)}>
+                    <Trash2 className="h-3 w-3" />
+                  </Button>
+                )}
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className="text-[10px] font-medium text-muted-foreground">Label <span className="text-destructive">*</span></label>
+                  <Input
+                    value={gf.label}
+                    onChange={(e) => {
+                      updateGroupFieldRow(idx, {
+                        label: e.target.value,
+                        fieldKey: e.target.value.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/(^_|_$)/g, ""),
+                      });
+                    }}
+                    placeholder="e.g. Photo, Name, Role"
+                    className="h-8 text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-medium text-muted-foreground">Key</label>
+                  <Input
+                    value={gf.fieldKey}
+                    onChange={(e) => updateGroupFieldRow(idx, { fieldKey: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "") })}
+                    placeholder="auto-generated"
+                    className="h-8 text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-medium text-muted-foreground">Type</label>
+                  <Select value={gf.fieldType} onValueChange={(v) => updateGroupFieldRow(idx, { fieldType: v })}>
+                    <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {FIELD_TYPES.map((t) => (
+                        <SelectItem key={t} value={t}>{t}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="flex items-center gap-4">
+                <label className="flex items-center gap-1.5 text-xs">
+                  <Checkbox
+                    checked={gf.isRequired}
+                    onCheckedChange={(v) => updateGroupFieldRow(idx, { isRequired: !!v })}
+                  />
+                  Required
+                </label>
+                <label className="flex items-center gap-1.5 text-xs">
+                  <Checkbox
+                    checked={gf.hasPosition}
+                    onCheckedChange={(v) => updateGroupFieldRow(idx, { hasPosition: !!v })}
+                  />
+                  Has Position
+                </label>
+              </div>
+            </div>
+          ))}
+
+          {groupFields.length === 0 && (
+            <div className="flex flex-col items-center rounded-lg border border-dashed py-6 text-center">
+              <p className="text-sm text-muted-foreground">No fields defined yet</p>
+              <Button type="button" variant="outline" size="sm" className="mt-2 h-7 text-xs" onClick={addGroupFieldRow}>
+                <Plus className="mr-1 h-3 w-3" /> Add First Field
+              </Button>
+            </div>
+          )}
+        </div>
+
+        {/* Preview of how users will see it */}
+        {groupName && groupFields.filter(f => f.label).length > 0 && (
+          <div className="rounded-lg border border-dashed border-emerald-300 bg-emerald-50/30 p-3 dark:border-emerald-800 dark:bg-emerald-950/20">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 mb-2">
+              User will see
+            </p>
+            <div className="rounded-md border border-emerald-200 bg-white p-2.5 dark:border-emerald-800 dark:bg-gray-900">
+              <p className="text-xs font-medium capitalize">{groupName}</p>
+              <p className="text-[10px] text-muted-foreground">1 of {groupMaxRepeat} max entries</p>
+              <div className="mt-1.5 space-y-1">
+                {groupFields.filter(f => f.label).map((gf, i) => (
+                  <div key={i} className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                    <span className="rounded bg-muted px-1 py-0.5 font-medium">{gf.fieldType}</span>
+                    <span>{gf.label}</span>
+                  </div>
+                ))}
+              </div>
+              <p className="mt-2 text-[10px] text-emerald-600">+ Add {groupName}</p>
+            </div>
+          </div>
+        )}
       </FormDialog>
 
       {/* Confirm Dialogs */}

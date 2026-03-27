@@ -241,6 +241,9 @@ model FieldSchema {
   placeholder   String?
   defaultValue  String?
   hasPosition   Boolean   @default(false)
+  isRepeatable  Boolean   @default(false)
+  maxRepeat     Int       @default(1)
+  groupKey      String?                     // Fields sharing same groupKey form a repeatable group
   /// [FieldValidation]
   validation    Json?
   /// [FieldDisplayConfig]

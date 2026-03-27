@@ -107,6 +107,9 @@ export interface FieldSchemaData {
   placeholder: string | null;
   defaultValue: string | null;
   hasPosition: boolean;
+  isRepeatable: boolean;
+  maxRepeat: number;
+  groupKey: string | null;
   validation: unknown;
   displayConfig: unknown;
 }

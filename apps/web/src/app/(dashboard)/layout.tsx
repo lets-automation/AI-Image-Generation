@@ -3,6 +3,7 @@
 import { Header } from "@/components/layout/Header";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { MobileBottomNav } from "@/components/layout/MobileBottomNav";
+import { CountrySelectPopup } from "@/components/shared/CountrySelectPopup";
 import { useOptionalAuth } from "@/hooks/useAuth";
 
 export default function DashboardLayout({
@@ -28,6 +29,7 @@ export default function DashboardLayout({
         <div className="p-4 sm:p-6 lg:p-8">{children}</div>
       </main>
       <MobileBottomNav />
+      <CountrySelectPopup />
     </div>
   );
 }

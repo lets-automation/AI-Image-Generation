@@ -56,6 +56,9 @@ export interface FieldSchemaItem {
   placeholder: string | null;
   defaultValue: string | null;
   hasPosition: boolean;
+  isRepeatable: boolean;
+  maxRepeat: number;
+  groupKey: string | null;
   validation: Record<string, unknown> | null;
   displayConfig: Record<string, unknown> | null;
 }

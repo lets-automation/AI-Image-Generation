@@ -35,6 +35,9 @@ interface CreateFieldSchemaInput {
   placeholder?: string;
   defaultValue?: string;
   hasPosition?: boolean;
+  isRepeatable?: boolean;
+  maxRepeat?: number;
+  groupKey?: string;
   validation?: Record<string, unknown>;
   displayConfig?: Record<string, unknown>;
 }
@@ -47,6 +50,9 @@ interface UpdateFieldSchemaInput {
   placeholder?: string;
   defaultValue?: string;
   hasPosition?: boolean;
+  isRepeatable?: boolean;
+  maxRepeat?: number;
+  groupKey?: string | null;
   validation?: Record<string, unknown>;
   displayConfig?: Record<string, unknown>;
 }
@@ -262,6 +268,9 @@ export class CategoryService {
         placeholder: input.placeholder,
         defaultValue: input.defaultValue,
         hasPosition: input.hasPosition ?? false,
+        isRepeatable: input.isRepeatable ?? false,
+        maxRepeat: input.maxRepeat ?? 1,
+        groupKey: input.groupKey ?? null,
         validation: input.validation ?? undefined,
         displayConfig: input.displayConfig ?? undefined,
       },

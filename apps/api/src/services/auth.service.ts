@@ -1,7 +1,6 @@
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { v4 as uuidv4 } from "uuid";
-import geoip from "geoip-lite";
 import { prisma } from "../config/database.js";
 import { config } from "../config/index.js";
 import { logger } from "../utils/logger.js";
@@ -47,8 +46,7 @@ export class AuthService {
     password: string;
     name: string;
     phone?: string;
-    ipAddress?: string;
-    forcedCountry?: string;
+    country?: string;
   }): Promise<AuthResult> {
     // Check for existing user
     const existing = await prisma.user.findFirst({
@@ -65,7 +63,7 @@ export class AuthService {
     }
 
     const passwordHash = await bcrypt.hash(input.password, this.SALT_ROUNDS);
-    const country = input.forcedCountry || await this.detectCountry(input.ipAddress);
+    const country = input.country || null;
 
     const user = await prisma.user.create({
       data: {
@@ -99,8 +97,7 @@ export class AuthService {
   async login(input: {
     email: string;
     password: string;
-    ipAddress?: string;
-    forcedCountry?: string;
+    country?: string;
   }): Promise<AuthResult> {
     let user = await prisma.user.findUnique({
       where: { email: input.email },
@@ -129,14 +126,13 @@ export class AuthService {
       throw new UnauthorizedError("Invalid email or password");
     }
 
-    const newCountry = input.forcedCountry || await this.detectCountry(input.ipAddress);
-    const needsCountryUpdate = newCountry && !(user as any).country;
+    const needsCountryUpdate = input.country && !(user as any).country;
 
     // Update last login and potentially country
     if (needsCountryUpdate) {
       user = await prisma.user.update({
         where: { id: user.id },
-        data: { lastLoginAt: new Date(), country: newCountry } as any,
+        data: { lastLoginAt: new Date(), country: input.country } as any,
         include: { customRole: { select: { name: true, permissions: true } } }
       });
     } else {
@@ -169,7 +165,7 @@ export class AuthService {
    * Authenticate via Google OAuth. Verifies the Google ID token,
    * finds or creates the user, and issues JWT tokens.
    */
-  async googleLogin(credential: string, ipAddress?: string, forcedCountry?: string): Promise<AuthResult> {
+  async googleLogin(credential: string, country?: string): Promise<AuthResult> {
     // 1. Verify token with Google
     const res = await fetch(
       `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(credential)}`
@@ -204,7 +200,7 @@ export class AuthService {
       include: { customRole: { select: { name: true, permissions: true } } },
     });
 
-    const newCountry = forcedCountry || await this.detectCountry(ipAddress);
+    const newCountry = country || null;
 
     if (user && !(user as any).googleId) {
       // Link Google account to existing email user
@@ -372,42 +368,13 @@ export class AuthService {
   }
 
   /**
-   * Detect country from IP address using geoip-lite (MaxMind GeoLite2 database),
-   * falling back to ip-api for better accuracy on Cloudways setups.
-   * Returns ISO 3166-1 alpha-2 country code or null if detection fails.
+   * Update user's country (called when user sets country from frontend).
    */
-  private async detectCountry(ipAddress?: string): Promise<string | null> {
-    if (!ipAddress) return null;
-
-    // Strip IPv6 prefix if present (e.g., "::ffff:127.0.0.1" → "127.0.0.1")
-    const cleanIp = ipAddress.replace(/^::ffff:/, "");
-
-    // Skip localhost / private IPs
-    if (cleanIp === "127.0.0.1" || cleanIp === "::1" || cleanIp.startsWith("192.168.") || cleanIp.startsWith("10.") || cleanIp.match(/^172\.(1[6-9]|2\d|3[0-1])\./)) {
-      return null;
-    }
-
-    try {
-      // 1. Try local geoip first
-      const geo = geoip.lookup(cleanIp);
-      if (geo?.country) {
-        logger.debug({ ip: cleanIp, country: geo.country }, "Country detected from IP (geoip-lite)");
-        return geo.country;
-      }
-
-      // 2. Fallback to free ip-api (Node 18 native fetch)
-      const res = await fetch(`http://ip-api.com/json/${cleanIp}`);
-      if (res.ok) {
-        const data = await res.json() as { status: string; countryCode: string };
-        if (data.status === "success" && data.countryCode) {
-          logger.debug({ ip: cleanIp, country: data.countryCode }, "Country detected from IP (ip-api fallback)");
-          return data.countryCode;
-        }
-      }
-    } catch (err) {
-      logger.warn({ ip: cleanIp, err }, "GeoIP lookup failed in both local and fallback");
-    }
-    return null;
+  async updateCountry(userId: string, country: string): Promise<void> {
+    await prisma.user.update({
+      where: { id: userId },
+      data: { country } as any,
+    });
   }
 
   private parseExpiry(expiry: string): number {

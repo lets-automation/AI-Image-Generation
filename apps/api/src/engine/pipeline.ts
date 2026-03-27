@@ -185,7 +185,7 @@ export async function executePipeline(
     await publishStatus(generationId, "PROCESSING", 40);
 
     // 5. Build overlay fields from generation data
-    const fieldValues = (generation.fieldValues ?? {}) as Record<string, string | number>;
+    const fieldValues = (generation.fieldValues ?? {}) as Record<string, unknown>;
     const positionMap = (generation.positionMap ?? {}) as Record<string, Position>;
 
     // Fetch field schemas to know field types
@@ -199,14 +199,35 @@ export async function executePipeline(
 
     const fieldTypeMap = new Map(fieldSchemas.map((f) => [f.fieldKey, f.fieldType]));
 
-    const overlayFields: OverlayField[] = Object.entries(fieldValues)
-      .filter(([key]) => positionMap[key]) // Only fields with assigned positions
-      .map(([key, value]) => ({
-        fieldKey: key,
-        value: String(value),
-        fieldType: (fieldTypeMap.get(key) ?? "TEXT") as OverlayField["fieldType"],
-        position: positionMap[key],
-      }));
+    // Flatten field values — grouped (repeatable) entries become individual overlay fields
+    const overlayFields: OverlayField[] = [];
+    for (const [key, value] of Object.entries(fieldValues)) {
+      if (Array.isArray(value)) {
+        // Grouped repeatable field — flatten each entry
+        for (let i = 0; i < value.length; i++) {
+          const entry = value[i] as Record<string, string | number>;
+          for (const [subKey, subVal] of Object.entries(entry)) {
+            const compositeKey = `${key}_${i + 1}_${subKey}`;
+            const pos = positionMap[compositeKey] ?? positionMap[subKey];
+            if (pos) {
+              overlayFields.push({
+                fieldKey: compositeKey,
+                value: String(subVal),
+                fieldType: (fieldTypeMap.get(subKey) ?? "TEXT") as OverlayField["fieldType"],
+                position: pos,
+              });
+            }
+          }
+        }
+      } else if (positionMap[key]) {
+        overlayFields.push({
+          fieldKey: key,
+          value: String(value),
+          fieldType: (fieldTypeMap.get(key) ?? "TEXT") as OverlayField["fieldType"],
+          position: positionMap[key],
+        });
+      }
+    }
 
     // 6. Route to renderer
     await publishStatus(generationId, "PROCESSING", 50);

@@ -24,6 +24,7 @@ router.get("/me", async (req: Request, res: Response, next: NextFunction) => {
         phone: true,
         role: true,
         avatarUrl: true,
+        country: true,
         createdAt: true,
         _count: {
           select: { generations: true, downloads: true },
@@ -49,6 +50,7 @@ const updateProfileSchema = z.object({
   name: z.string().min(2).max(100).trim().optional(),
   phone: z.string().min(10).max(15).optional().nullable(),
   avatarUrl: z.string().url().optional().nullable(),
+  country: z.string().length(2).toUpperCase().optional(),
 });
 
 router.patch(
@@ -69,6 +71,7 @@ router.patch(
           phone: true,
           role: true,
           avatarUrl: true,
+          country: true,
           createdAt: true,
         },
       });

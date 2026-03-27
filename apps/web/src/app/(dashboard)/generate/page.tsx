@@ -40,6 +40,7 @@ import {
   Loader2, ChevronDown, CheckCircle2,
   ArrowLeft, Sparkles, Image as ImageIcon, Globe, Info, Users,
   Square, RectangleVertical, RectangleHorizontal, Smartphone, Monitor,
+  Plus, Trash2, Upload,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import toast from "react-hot-toast";
@@ -366,6 +367,188 @@ function PreviewPanel({
   );
 }
 
+// ─── Single Field Input ──────────────────────────────────
+
+function FieldInput({
+  schema,
+  store,
+}: {
+  schema: { fieldKey: string; label: string; fieldType: string; isRequired: boolean; hasPosition: boolean; placeholder: string | null; isRepeatable?: boolean; maxRepeat?: number };
+  store: Pick<GenerationState, "fieldValues" | "positionMap" | "conflicts" | "setFieldValue" | "setPosition">;
+}) {
+  return (
+    <div>
+      <Label className="mb-1.5 flex items-center gap-1">
+        {schema.label}
+        {schema.isRequired && <span className="text-destructive">*</span>}
+      </Label>
+
+      <div className={schema.hasPosition ? "flex items-start gap-3" : ""}>
+        <div className={schema.hasPosition ? "flex-1 min-w-0" : ""}>
+          {schema.fieldType === "TEXTAREA" ? (
+            <Textarea
+              value={(store.fieldValues[schema.fieldKey] as string) ?? ""}
+              onChange={(e) => store.setFieldValue(schema.fieldKey, e.target.value)}
+              placeholder={schema.placeholder ?? ""}
+              rows={3}
+            />
+          ) : schema.fieldType === "IMAGE" ? (
+            <div className="space-y-3">
+              {(() => {
+                const isRepeatable = !!schema.isRepeatable;
+                const max = isRepeatable ? (schema.maxRepeat || 5) : 1;
+                const rawValue = store.fieldValues[schema.fieldKey];
+                
+                // Normalize value to an array for rendering
+                let images: string[] = [];
+                if (rawValue) {
+                  images = Array.isArray(rawValue) ? (rawValue as string[]) : [rawValue as string];
+                }
+
+                return (
+                  <>
+                    {/* Render existing uploaded images */}
+                    {images.length > 0 && (
+                      <div className="flex flex-wrap gap-3">
+                        {images.map((url, idx) => (
+                          <div key={idx} className="relative inline-block shrink-0">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={url}
+                              alt={`${schema.label} - ${idx + 1}`}
+                              className="h-24 w-24 rounded-lg border object-cover shadow-sm bg-white"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const newImages = images.filter((_, i) => i !== idx);
+                                if (isRepeatable) {
+                                  store.setFieldValue(schema.fieldKey, (newImages.length > 0 ? newImages : "") as any);
+                                } else {
+                                  store.setFieldValue(schema.fieldKey, "");
+                                }
+                              }}
+                              className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full border border-white bg-destructive text-[12px] font-bold text-white shadow hover:scale-105 active:scale-95 transition-all"
+                            >
+                              x
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Styled dropzone — Show if under max repeat */}
+                    {images.length < max && (
+                      <label className={cn(
+                        "relative flex cursor-pointer items-center gap-4 rounded-xl border-2 border-dashed p-4 transition-colors",
+                        store.conflicts.some((c) => c.fields.includes(schema.fieldKey))
+                          ? "border-destructive/60 bg-destructive/5 hover:bg-destructive/10"
+                          : "border-blue-400/60 bg-blue-50/50 hover:bg-blue-50/90 dark:border-blue-800/60 dark:bg-blue-950/20 dark:hover:bg-blue-900/40"
+                      )}>
+                        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-600 dark:bg-blue-900/50 dark:text-blue-400">
+                          <Upload className="h-5 w-5" />
+                        </div>
+                        <div className="flex-1 space-y-1 pr-6">
+                          <p className="font-semibold text-blue-700 dark:text-blue-300">
+                            Upload your own image
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            JPG, PNG, WebP up to 10 MB
+                          </p>
+                          <p className="flex items-center gap-1 text-[11px] text-muted-foreground/80 mt-1">
+                            <Info className="h-3 w-3" /> Recommended 1024x1024px+
+                          </p>
+                        </div>
+                        <input
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp"
+                          className="absolute inset-0 hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                              const url = URL.createObjectURL(file);
+                              if (isRepeatable) {
+                                store.setFieldValue(schema.fieldKey, [...images, url] as any);
+                              } else {
+                                store.setFieldValue(schema.fieldKey, url);
+                              }
+                            }
+                            // Reset input so same file can be selected again if deleted
+                            e.target.value = "";
+                          }}
+                        />
+                      </label>
+                    )}
+                  </>
+                );
+              })()}
+            </div>
+          ) : (
+            <>
+              <Input
+                type={schema.fieldType === "PHONE" || schema.fieldType === "NUMBER" ? "tel" : schema.fieldType === "EMAIL" ? "email" : "text"}
+                value={(store.fieldValues[schema.fieldKey] as string) ?? ""}
+                onChange={(e) => store.setFieldValue(schema.fieldKey, e.target.value)}
+                placeholder={schema.placeholder ?? (schema.fieldType === "PHONE" ? "+91 9876543210" : schema.fieldType === "EMAIL" ? "email@example.com" : "")}
+              />
+              {schema.fieldType === "PHONE" && store.fieldValues[schema.fieldKey] && (() => {
+                const phone = String(store.fieldValues[schema.fieldKey]).replace(/\s/g, "");
+                const valid = /^\+?\d{7,15}$/.test(phone);
+                return !valid ? (
+                  <p className="mt-0.5 text-[11px] text-destructive">Enter a valid phone number (7-15 digits)</p>
+                ) : null;
+              })()}
+              {schema.fieldType === "EMAIL" && store.fieldValues[schema.fieldKey] && (() => {
+                const valid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(store.fieldValues[schema.fieldKey]));
+                return !valid ? (
+                  <p className="mt-0.5 text-[11px] text-destructive">Enter a valid email address</p>
+                ) : null;
+              })()}
+            </>
+          )}
+        </div>
+
+        {schema.hasPosition && (
+          <div className="w-[160px] shrink-0">
+            <p className="mb-1 text-[10px] text-muted-foreground">Position</p>
+            <Select
+              value={store.positionMap[schema.fieldKey] ?? ""}
+              onValueChange={(value) => store.setPosition(schema.fieldKey, value as Position)}
+            >
+              <SelectTrigger className={cn(
+                "w-full h-9 text-xs",
+                store.conflicts.some((c) => c.fields.includes(schema.fieldKey))
+                  ? "border-destructive text-destructive"
+                  : ""
+              )}>
+                <SelectValue placeholder="Position" />
+              </SelectTrigger>
+              <SelectContent>
+                {ALL_POSITIONS.map((pos) => {
+                  const isConflict = store.conflicts.some(
+                    (c) => c.position === pos && c.fields.includes(schema.fieldKey)
+                  );
+                  return (
+                    <SelectItem key={pos} value={pos}>
+                      <span className={isConflict ? "text-destructive" : ""}>
+                        {POSITION_LABELS[pos].label}
+                        {isConflict && " ⚠"}
+                      </span>
+                    </SelectItem>
+                  );
+                })}
+              </SelectContent>
+            </Select>
+            {store.conflicts.some((c) => c.fields.includes(schema.fieldKey)) && (
+              <p className="mt-0.5 text-[10px] text-destructive">Conflict</p>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Batch Views (extracted to batch-views.tsx) ─────────
 
 import { ProcessingView, ResultView, type BatchResult } from "./batch-views";
@@ -651,121 +834,208 @@ export default function GeneratePage() {
           {store.fieldSchemas.length > 0 && (
             <Section
               title="Details & Positions"
-              subtitle={`${Object.keys(store.fieldValues).length} of ${store.fieldSchemas.length} filled`}
-              complete={store.fieldSchemas.filter((s) => s.isRequired).every((s) => store.fieldValues[s.fieldKey])}
+              subtitle={(() => {
+                const regularCount = store.fieldSchemas.filter((s) => !s.groupKey).length;
+                const groupKeys = new Set(store.fieldSchemas.filter((s) => s.groupKey).map((s) => s.groupKey));
+                const parts: string[] = [];
+                if (regularCount > 0) parts.push(`${regularCount} field${regularCount !== 1 ? "s" : ""}`);
+                if (groupKeys.size > 0) parts.push(`${groupKeys.size} group${groupKeys.size !== 1 ? "s" : ""}`);
+                return parts.join(" + ");
+              })()}
+              complete={store.fieldSchemas.filter((s) => s.isRequired && !s.groupKey).every((s) => store.fieldValues[s.fieldKey])}
             >
               <div className="space-y-4">
-                {store.fieldSchemas.map((schema) => (
-                  <div key={schema.fieldKey}>
-                    <Label className="mb-1.5 flex items-center gap-1">
-                      {schema.label}
-                      {schema.isRequired && <span className="text-destructive">*</span>}
-                    </Label>
+                {/* Non-grouped fields */}
+                {store.fieldSchemas.filter((s) => !s.groupKey).map((schema) => (
+                  <FieldInput key={schema.fieldKey} schema={schema} store={store} />
+                ))}
 
-                    <div className={schema.hasPosition ? "flex items-start gap-3" : ""}>
-                      <div className={schema.hasPosition ? "flex-1 min-w-0" : ""}>
-                        {schema.fieldType === "TEXTAREA" ? (
-                          <Textarea
-                            value={(store.fieldValues[schema.fieldKey] as string) ?? ""}
-                            onChange={(e) => store.setFieldValue(schema.fieldKey, e.target.value)}
-                            placeholder={schema.placeholder ?? ""}
-                            rows={3}
-                          />
-                        ) : schema.fieldType === "IMAGE" ? (
-                          <div className="space-y-2">
-                            {store.fieldValues[schema.fieldKey] ? (
-                              <div className="relative inline-block">
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img
-                                  src={store.fieldValues[schema.fieldKey] as string}
-                                  alt={schema.label}
-                                  className="h-20 w-20 rounded-md border object-cover"
-                                />
+                {/* Grouped repeatable fields */}
+                {(() => {
+                  const groups = new Map<string, typeof store.fieldSchemas>();
+                  for (const s of store.fieldSchemas) {
+                    if (s.groupKey) {
+                      if (!groups.has(s.groupKey)) groups.set(s.groupKey, []);
+                      groups.get(s.groupKey)!.push(s);
+                    }
+                  }
+                  if (groups.size === 0) return null;
+
+                  return (
+                    <>
+                      {/* Separator between regular fields and groups */}
+                      {store.fieldSchemas.some((s) => !s.groupKey) && (
+                        <Separator className="my-1" />
+                      )}
+
+                      {Array.from(groups.entries()).map(([groupKey, schemas]) => {
+                        const entries = (store.fieldValues[groupKey] as Array<Record<string, string | number>>) ?? [];
+                        const maxRepeat = schemas[0]?.maxRepeat ?? 5;
+                        const fieldKeys = schemas.map((s) => s.fieldKey);
+                        const groupDisplayName = groupKey.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+
+                        // Auto-add first entry if none exist
+                        if (entries.length === 0) {
+                          // Use setTimeout to avoid updating state during render
+                          setTimeout(() => store.addGroupEntry(groupKey, fieldKeys), 0);
+                        }
+
+                        return (
+                          <div key={groupKey} className="rounded-xl border-2 border-blue-200/70 bg-blue-50/20 dark:border-blue-900/50 dark:bg-blue-950/10 overflow-hidden">
+                            {/* Group header */}
+                            <div className="flex items-center justify-between border-b border-blue-200/50 bg-blue-50/60 px-4 py-3 dark:border-blue-900/40 dark:bg-blue-950/30">
+                              <div className="flex items-center gap-2.5">
+                                <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-500/15">
+                                  <Users className="h-3.5 w-3.5 text-blue-600" />
+                                </div>
+                                <div>
+                                  <p className="text-sm font-semibold text-blue-900 dark:text-blue-200">
+                                    {groupDisplayName}
+                                  </p>
+                                  <p className="text-[11px] text-blue-600/70 dark:text-blue-400/60">
+                                    {entries.length} of {maxRepeat} added
+                                  </p>
+                                </div>
+                              </div>
+                              {entries.length < maxRepeat && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-8 text-xs border-blue-300 text-blue-700 hover:bg-blue-100 dark:border-blue-700 dark:text-blue-300"
+                                  onClick={() => store.addGroupEntry(groupKey, fieldKeys)}
+                                >
+                                  <Plus className="mr-1 h-3 w-3" /> Add {groupDisplayName}
+                                </Button>
+                              )}
+                            </div>
+
+                            {/* Entries */}
+                            <div className="space-y-3 p-3">
+                              {entries.map((entry, idx) => (
+                                <div key={idx} className="rounded-lg border border-blue-200/60 bg-white shadow-sm dark:border-blue-900/40 dark:bg-gray-900">
+                                  {/* Entry header */}
+                                  <div className="flex items-center justify-between border-b border-blue-100/60 px-3 py-2 dark:border-blue-900/30">
+                                    <div className="flex items-center gap-2">
+                                      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-blue-700 dark:bg-blue-900 dark:text-blue-300">
+                                        {idx + 1}
+                                      </span>
+                                      <span className="text-xs font-medium text-blue-800/80 dark:text-blue-300/80">
+                                        {groupDisplayName} #{idx + 1}
+                                      </span>
+                                    </div>
+                                    {entries.length > 1 && (
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-7 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
+                                        onClick={() => store.removeGroupEntry(groupKey, idx)}
+                                      >
+                                        <Trash2 className="mr-1 h-3 w-3" /> Remove
+                                      </Button>
+                                    )}
+                                  </div>
+                                  {/* Entry fields */}
+                                  <div className="space-y-3 p-3">
+                                    {schemas.map((schema) => (
+                                      <div key={schema.fieldKey}>
+                                        <Label className="mb-1 text-xs flex items-center gap-1">
+                                          {schema.label}
+                                          {schema.isRequired && <span className="text-destructive">*</span>}
+                                        </Label>
+                                        {schema.fieldType === "IMAGE" ? (
+                                          <div className="space-y-3 mt-1">
+                                            {entry[schema.fieldKey] ? (
+                                              <div className="relative inline-block shrink-0">
+                                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                                <img
+                                                  src={String(entry[schema.fieldKey])}
+                                                  alt={schema.label}
+                                                  className="h-24 w-24 rounded-lg border object-cover shadow-sm bg-white"
+                                                />
+                                                <button
+                                                  type="button"
+                                                  onClick={() => store.setGroupFieldValue(groupKey, idx, schema.fieldKey, "")}
+                                                  className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full border border-white bg-destructive text-[12px] font-bold text-white shadow hover:scale-105 active:scale-95 transition-all"
+                                                >
+                                                  x
+                                                </button>
+                                              </div>
+                                            ) : (
+                                              <label className="relative flex cursor-pointer items-center gap-4 rounded-xl border-2 border-dashed border-blue-400/60 bg-blue-50/50 p-4 transition-colors hover:bg-blue-50/90 dark:border-blue-800/60 dark:bg-blue-950/20 dark:hover:bg-blue-900/40">
+                                                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-600 dark:bg-blue-900/50 dark:text-blue-400">
+                                                  <Upload className="h-4 w-4" />
+                                                </div>
+                                                <div className="flex-1 space-y-1 pr-4">
+                                                  <p className="text-sm font-semibold text-blue-700 dark:text-blue-300">
+                                                    Upload image
+                                                  </p>
+                                                  <p className="text-[10px] text-muted-foreground">
+                                                    JPG, PNG, WebP up to 10 MB
+                                                  </p>
+                                                </div>
+                                                <input
+                                                  type="file"
+                                                  accept="image/jpeg,image/png,image/webp"
+                                                  className="absolute inset-0 hidden"
+                                                  onChange={(e) => {
+                                                    const file = e.target.files?.[0];
+                                                    if (file) {
+                                                      const url = URL.createObjectURL(file);
+                                                      store.setGroupFieldValue(groupKey, idx, schema.fieldKey, url);
+                                                    }
+                                                    e.target.value = "";
+                                                  }}
+                                                />
+                                              </label>
+                                            )}
+                                          </div>
+                                        ) : schema.fieldType === "TEXTAREA" ? (
+                                          <Textarea
+                                            value={String(entry[schema.fieldKey] ?? "")}
+                                            onChange={(e) => store.setGroupFieldValue(groupKey, idx, schema.fieldKey, e.target.value)}
+                                            placeholder={schema.placeholder ?? ""}
+                                            rows={2}
+                                            className="text-xs"
+                                          />
+                                        ) : (
+                                          <Input
+                                            type={schema.fieldType === "PHONE" || schema.fieldType === "NUMBER" ? "tel" : schema.fieldType === "EMAIL" ? "email" : "text"}
+                                            value={String(entry[schema.fieldKey] ?? "")}
+                                            onChange={(e) => store.setGroupFieldValue(groupKey, idx, schema.fieldKey, e.target.value)}
+                                            placeholder={schema.placeholder ?? ""}
+                                            className="h-9 text-sm"
+                                          />
+                                        )}
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              ))}
+
+                              {/* Add more button at bottom */}
+                              {entries.length > 0 && entries.length < maxRepeat && (
                                 <button
                                   type="button"
-                                  onClick={() => store.setFieldValue(schema.fieldKey, "")}
-                                  className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-destructive text-[10px] text-white"
+                                  onClick={() => store.addGroupEntry(groupKey, fieldKeys)}
+                                  className="flex w-full items-center justify-center gap-2 rounded-lg border-2 border-dashed border-blue-200/80 py-3 text-xs font-medium text-blue-600 transition-colors hover:border-blue-300 hover:bg-blue-50/50 dark:border-blue-800/60 dark:text-blue-400 dark:hover:border-blue-700 dark:hover:bg-blue-950/30"
                                 >
-                                  x
+                                  <Plus className="h-3.5 w-3.5" />
+                                  Add another {groupDisplayName} ({entries.length}/{maxRepeat})
                                 </button>
-                              </div>
-                            ) : null}
-                            <Input
-                              type="file"
-                              accept="image/jpeg,image/png,image/webp"
-                              onChange={(e) => {
-                                const file = e.target.files?.[0];
-                                if (file) {
-                                  const url = URL.createObjectURL(file);
-                                  store.setFieldValue(schema.fieldKey, url);
-                                }
-                              }}
-                            />
-                          </div>
-                        ) : (
-                          <>
-                            <Input
-                              type={schema.fieldType === "PHONE" || schema.fieldType === "NUMBER" ? "tel" : schema.fieldType === "EMAIL" ? "email" : "text"}
-                              value={(store.fieldValues[schema.fieldKey] as string) ?? ""}
-                              onChange={(e) => store.setFieldValue(schema.fieldKey, e.target.value)}
-                              placeholder={schema.placeholder ?? (schema.fieldType === "PHONE" ? "+91 9876543210" : schema.fieldType === "EMAIL" ? "email@example.com" : "")}
-                            />
-                            {schema.fieldType === "PHONE" && store.fieldValues[schema.fieldKey] && (() => {
-                              const phone = String(store.fieldValues[schema.fieldKey]).replace(/\s/g, "");
-                              const valid = /^\+?\d{7,15}$/.test(phone);
-                              return !valid ? (
-                                <p className="mt-0.5 text-[11px] text-destructive">Enter a valid phone number (7-15 digits)</p>
-                              ) : null;
-                            })()}
-                            {schema.fieldType === "EMAIL" && store.fieldValues[schema.fieldKey] && (() => {
-                              const valid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(store.fieldValues[schema.fieldKey]));
-                              return !valid ? (
-                                <p className="mt-0.5 text-[11px] text-destructive">Enter a valid email address</p>
-                              ) : null;
-                            })()}
-                          </>
-                        )}
-                      </div>
+                              )}
 
-                      {schema.hasPosition && (
-                        <div className="w-[160px] shrink-0">
-                          <p className="mb-1 text-[10px] text-muted-foreground">Position</p>
-                          <Select
-                            value={store.positionMap[schema.fieldKey] ?? ""}
-                            onValueChange={(value) => store.setPosition(schema.fieldKey, value as Position)}
-                          >
-                            <SelectTrigger className={cn(
-                              "w-full h-9 text-xs",
-                              store.conflicts.some((c) => c.fields.includes(schema.fieldKey))
-                                ? "border-destructive text-destructive"
-                                : ""
-                            )}>
-                              <SelectValue placeholder="Position" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {ALL_POSITIONS.map((pos) => {
-                                const isConflict = store.conflicts.some(
-                                  (c) => c.position === pos && c.fields.includes(schema.fieldKey)
-                                );
-                                return (
-                                  <SelectItem key={pos} value={pos}>
-                                    <span className={isConflict ? "text-destructive" : ""}>
-                                      {POSITION_LABELS[pos].label}
-                                      {isConflict && " ⚠"}
-                                    </span>
-                                  </SelectItem>
-                                );
-                              })}
-                            </SelectContent>
-                          </Select>
-                          {store.conflicts.some((c) => c.fields.includes(schema.fieldKey)) && (
-                            <p className="mt-0.5 text-[10px] text-destructive">Conflict</p>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))}
+                              {entries.length >= maxRepeat && (
+                                <p className="text-center text-[11px] text-muted-foreground">
+                                  Maximum {maxRepeat} entries reached
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </>
+                  );
+                })()}
               </div>
             </Section>
           )}
