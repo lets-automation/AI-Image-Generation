@@ -63,7 +63,7 @@ export class AuthService {
     }
 
     const passwordHash = await bcrypt.hash(input.password, this.SALT_ROUNDS);
-    const country = input.country || null;
+    const country = this.normalizeCountry(input.country);
 
     const user = await prisma.user.create({
       data: {
@@ -126,13 +126,14 @@ export class AuthService {
       throw new UnauthorizedError("Invalid email or password");
     }
 
-    const needsCountryUpdate = input.country && !(user as any).country;
+    const normalizedCountry = this.normalizeCountry(input.country);
+    const needsCountryUpdate = normalizedCountry && !(user as any).country;
 
     // Update last login and potentially country
     if (needsCountryUpdate) {
       user = await prisma.user.update({
         where: { id: user.id },
-        data: { lastLoginAt: new Date(), country: input.country } as any,
+        data: { lastLoginAt: new Date(), country: normalizedCountry } as any,
         include: { customRole: { select: { name: true, permissions: true } } }
       });
     } else {
@@ -200,7 +201,7 @@ export class AuthService {
       include: { customRole: { select: { name: true, permissions: true } } },
     });
 
-    const newCountry = country || null;
+    const newCountry = this.normalizeCountry(country);
 
     if (user && !(user as any).googleId) {
       // Link Google account to existing email user
@@ -396,6 +397,12 @@ export class AuthService {
       default:
         return 7 * 24 * 60 * 60 * 1000;
     }
+  }
+
+  private normalizeCountry(country?: string | null): string | null {
+    if (!country) return null;
+    const normalized = country.trim().toUpperCase();
+    return /^[A-Z]{2}$/.test(normalized) ? normalized : null;
   }
 }
 

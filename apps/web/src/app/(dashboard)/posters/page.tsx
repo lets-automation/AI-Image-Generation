@@ -41,10 +41,10 @@ export default function PostersPage() {
 
   useEffect(() => {
     const store = useBrowseStore.getState();
-    if (store.contentType !== "POSTER" || !store.aspectRatio) {
+    if (store.contentType !== "POSTER") {
       useBrowseStore.setState({
         contentType: "POSTER",
-        aspectRatio: "SQUARE",
+        aspectRatio: null,
         categoryId: null,
         page: 1,
         searchQuery: "",
@@ -102,11 +102,12 @@ export default function PostersPage() {
 
           <div className="mb-4 flex flex-col items-center gap-4 md:flex-row md:justify-between">
             <Tabs
-              value={aspectRatio || "SQUARE"}
-              onValueChange={(v) => setAspectRatio(v as any)}
+              value={aspectRatio || "ALL"}
+              onValueChange={(v) => setAspectRatio(v === "ALL" ? null : v as any)}
               className="w-full md:w-auto"
             >
-              <TabsList className="grid h-12 w-full grid-cols-3 rounded-xl border border-gray-200/50 bg-gray-100/80 p-1">
+              <TabsList className="grid h-12 w-full grid-cols-4 rounded-xl border border-gray-200/50 bg-gray-100/80 p-1">
+                <TabsTrigger value="ALL" className="rounded-lg text-gray-600 transition-all data-[state=active]:bg-white data-[state=active]:text-primary-700 data-[state=active]:shadow-sm">All</TabsTrigger>
                 <TabsTrigger value="SQUARE" className="rounded-lg text-gray-600 transition-all data-[state=active]:bg-white data-[state=active]:text-primary-700 data-[state=active]:shadow-sm">Instagram</TabsTrigger>
                 <TabsTrigger value="LANDSCAPE" className="rounded-lg text-gray-600 transition-all data-[state=active]:bg-white data-[state=active]:text-primary-700 data-[state=active]:shadow-sm">Facebook</TabsTrigger>
                 <TabsTrigger value="PORTRAIT" className="rounded-lg text-gray-600 transition-all data-[state=active]:bg-white data-[state=active]:text-primary-700 data-[state=active]:shadow-sm">Snapchat</TabsTrigger>
@@ -207,7 +208,7 @@ export default function PostersPage() {
                           </button>
                         </div>
                         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-                          {group.templates.slice(0, 5).map((template) => (
+                          {group.templates.map((template) => (
                             <TemplateCard key={template.id} template={template} contentType="POSTER" />
                           ))}
                         </div>

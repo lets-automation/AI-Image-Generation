@@ -58,7 +58,9 @@ export async function enqueueGeneration(
 
   const job = await queue.add("render", data, {
     jobId: `gen-${data.generationId}`,
-    priority: data.qualityTier === "BASIC" ? 1 : data.qualityTier === "STANDARD" ? 2 : 3,
+    // BullMQ uses lower numbers as higher priority.
+    // PREMIUM should be processed first, then STANDARD, then BASIC.
+    priority: data.qualityTier === "PREMIUM" ? 1 : data.qualityTier === "STANDARD" ? 2 : 3,
     // Store timeout in custom metadata — worker enforces it via AbortController
   } as Record<string, unknown>);
 

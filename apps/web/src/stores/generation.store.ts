@@ -43,6 +43,9 @@ export interface GenerationState {
   selectedTemplate: TemplateResponse | null;
   uploadedImage: File | null;
   uploadedImageUrl: string | null;
+  uploadedImages: File[];
+  uploadedImageUrls: string[];
+  customUploadMode: "SEPARATE" | "COMBINE";
   selectedCategory: CategoryResponse | null;
   fieldSchemas: FieldSchemaResponse[];
   fieldValues: FieldValues;
@@ -71,6 +74,8 @@ export interface GenerationState {
   setContentType: (type: ContentType) => void;
   selectTemplate: (template: TemplateResponse) => void;
   setUploadedImage: (file: File, previewUrl: string) => void;
+  setUploadedImages: (files: File[], previewUrls: string[], mode?: "SEPARATE" | "COMBINE") => void;
+  setCustomUploadMode: (mode: "SEPARATE" | "COMBINE") => void;
   selectCategory: (category: CategoryResponse) => void;
   setFieldValue: (key: string, value: string | number | string[]) => void;
   setPosition: (key: string, position: Position) => void;
@@ -102,6 +107,9 @@ const initialState = {
   selectedTemplate: null as TemplateResponse | null,
   uploadedImage: null as File | null,
   uploadedImageUrl: null as string | null,
+  uploadedImages: [] as File[],
+  uploadedImageUrls: [] as string[],
+  customUploadMode: "SEPARATE" as "SEPARATE" | "COMBINE",
   selectedCategory: null as CategoryResponse | null,
   fieldSchemas: [] as FieldSchemaResponse[],
   fieldValues: {} as FieldValues,
@@ -151,14 +159,32 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
       selectedTemplate: template,
       uploadedImage: null,
       uploadedImageUrl: null,
+      uploadedImages: [],
+      uploadedImageUrls: [],
+      customUploadMode: "SEPARATE",
     }),
 
   setUploadedImage: (file, previewUrl) =>
     set({
       uploadedImage: file,
       uploadedImageUrl: previewUrl,
+      uploadedImages: [file],
+      uploadedImageUrls: [previewUrl],
+      customUploadMode: "SEPARATE",
       selectedTemplate: null,
     }),
+
+  setUploadedImages: (files, previewUrls, mode = "SEPARATE") =>
+    set({
+      uploadedImages: files,
+      uploadedImageUrls: previewUrls,
+      uploadedImage: files[0] ?? null,
+      uploadedImageUrl: previewUrls[0] ?? null,
+      customUploadMode: mode,
+      selectedTemplate: null,
+    }),
+
+  setCustomUploadMode: (mode) => set({ customUploadMode: mode }),
 
   selectCategory: (category) =>
     set({
@@ -194,7 +220,47 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
     set((state) => {
       const current = (state.fieldValues[groupKey] as Array<Record<string, string | number>>) ?? [];
       const updated = current.filter((_, i) => i !== index);
-      return { fieldValues: { ...state.fieldValues, [groupKey]: updated } };
+
+      const prefix = `${groupKey}_`;
+      const nextPositionMap: Record<string, Position> = {};
+
+      for (const [positionKey, position] of Object.entries(state.positionMap)) {
+        if (!positionKey.startsWith(prefix)) {
+          nextPositionMap[positionKey] = position;
+          continue;
+        }
+
+        const tail = positionKey.slice(prefix.length);
+        const firstUnderscore = tail.indexOf("_");
+        if (firstUnderscore === -1) {
+          nextPositionMap[positionKey] = position;
+          continue;
+        }
+
+        const indexPart = tail.slice(0, firstUnderscore);
+        const subKey = tail.slice(firstUnderscore + 1);
+        const parsedIndex = Number(indexPart);
+
+        if (!Number.isInteger(parsedIndex) || parsedIndex < 1 || !subKey) {
+          nextPositionMap[positionKey] = position;
+          continue;
+        }
+
+        // Drop keys for the removed entry.
+        if (parsedIndex === index + 1) {
+          continue;
+        }
+
+        // Reindex keys after the removed entry so they keep matching array indices.
+        const nextIndex = parsedIndex > index + 1 ? parsedIndex - 1 : parsedIndex;
+        nextPositionMap[`${groupKey}_${nextIndex}_${subKey}`] = position;
+      }
+
+      return {
+        fieldValues: { ...state.fieldValues, [groupKey]: updated },
+        positionMap: nextPositionMap,
+        conflicts: detectConflicts(nextPositionMap),
+      };
     }),
 
   setGroupFieldValue: (groupKey, index, fieldKey, value) =>
@@ -231,21 +297,23 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
 
   submitGeneration: async () => {
     const state = get();
-    const isCustomUpload = !state.selectedTemplate && !!state.uploadedImageUrl;
+    const customImageUrls = state.uploadedImageUrls.length > 0
+      ? state.uploadedImageUrls
+      : (state.uploadedImageUrl ? [state.uploadedImageUrl] : []);
+    const isCustomUpload = !state.selectedTemplate && customImageUrls.length > 0;
 
     // Validate required fields before submitting
-    if (!isCustomUpload) {
-      if (!state.selectedLanguages || state.selectedLanguages.length === 0) {
-        set({ errorMessage: "Please select at least one language.", isSubmitting: false });
-        return;
-      }
-      if (!state.selectedCategory) {
-        set({ errorMessage: "Please select a category.", isSubmitting: false });
-        return;
-      }
+    if (!isCustomUpload && (!state.selectedLanguages || state.selectedLanguages.length === 0)) {
+      set({ errorMessage: "Please select at least one language.", isSubmitting: false });
+      return;
     }
 
-    if (!state.selectedTemplate && !state.uploadedImageUrl) {
+    if (!isCustomUpload && !state.selectedCategory) {
+      set({ errorMessage: "Please select a category.", isSubmitting: false });
+      return;
+    }
+
+    if (!state.selectedTemplate && customImageUrls.length === 0) {
       set({ errorMessage: "Please select a template or upload an image.", isSubmitting: false });
       return;
     }
@@ -316,29 +384,36 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
       }
 
       // 2. Upload user base image to Cloudinary if it's a local blob URL
-      let resolvedBaseImageUrl: string | null = state.uploadedImageUrl;
-      if (state.uploadedImage && resolvedBaseImageUrl?.startsWith("blob:")) {
-        try {
-          const imgFormData = new FormData();
-          imgFormData.append("baseImage", state.uploadedImage);
+      const resolvedBaseImageUrls: string[] = [];
+      for (let index = 0; index < customImageUrls.length; index++) {
+        const currentUrl = customImageUrls[index];
+        const currentFile = state.uploadedImages[index] ?? (index === 0 ? state.uploadedImage : null);
 
-          const uploadRes = await apiClient.post<{
-            success: boolean;
-            data: { url: string; width: number; height: number; warnings: string[] };
-          }>("/users/upload-base-image", imgFormData, {
-            headers: { "Content-Type": "multipart/form-data" },
-          });
+        if (currentUrl.startsWith("blob:") && currentFile) {
+          try {
+            const imgFormData = new FormData();
+            imgFormData.append("baseImage", currentFile);
 
-          if (uploadRes.data?.data?.url) {
-            resolvedBaseImageUrl = uploadRes.data.data.url;
-          } else {
-            throw new Error("Upload returned no URL");
+            const uploadRes = await apiClient.post<{
+              success: boolean;
+              data: { url: string; width: number; height: number; warnings: string[] };
+            }>("/users/upload-base-image", imgFormData, {
+              headers: { "Content-Type": "multipart/form-data" },
+            });
+
+            if (uploadRes.data?.data?.url) {
+              resolvedBaseImageUrls.push(uploadRes.data.data.url);
+            } else {
+              throw new Error("Upload returned no URL");
+            }
+          } catch (err) {
+            const axiosUploadErr = err as { response?: { data?: { message?: string } } };
+            throw new Error(
+              axiosUploadErr?.response?.data?.message ?? "Failed to upload base image. Please try again."
+            );
           }
-        } catch (err) {
-          const axiosUploadErr = err as { response?: { data?: { message?: string } } };
-          throw new Error(
-            axiosUploadErr?.response?.data?.message ?? "Failed to upload base image. Please try again."
-          );
+        } else if (currentUrl) {
+          resolvedBaseImageUrls.push(currentUrl);
         }
       }
 
@@ -358,7 +433,9 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
         "/generations",
         {
           templateId: state.selectedTemplate?.id ?? undefined,
-          baseImageUrl: resolvedBaseImageUrl ?? undefined,
+          baseImageUrl: resolvedBaseImageUrls[0] ?? undefined,
+          baseImageUrls: isCustomUpload ? resolvedBaseImageUrls : undefined,
+          customUploadMode: isCustomUpload ? state.customUploadMode : undefined,
           contentType: state.contentType,
           categoryId: isCustomUpload ? undefined : state.selectedCategory?.id,
           qualityTier: state.qualityTier,

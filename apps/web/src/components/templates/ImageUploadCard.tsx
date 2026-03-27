@@ -18,141 +18,257 @@ const ACCEPTED_FORMATS = ["image/jpeg", "image/png", "image/webp"];
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 const MIN_DIMENSION = 768;
 const RECOMMENDED_MIN = 1024;
+const MAX_FILES = 6;
+
+
 
 export function ImageUploadCard({ contentType, variant = "vertical" }: ImageUploadCardProps) {
   const router = useRouter();
-  const { setUploadedImage, setContentType, reset } = useGenerationStore();
-  const [preview, setPreview] = useState<string | null>(null);
+  const { setUploadedImages, setContentType, reset } = useGenerationStore();
+  const [previews, setPreviews] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [warning, setWarning] = useState<string | null>(null);
-  const [dimensions, setDimensions] = useState<{ w: number; h: number } | null>(null);
-  const [fileName, setFileName] = useState<string | null>(null);
-  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
+  const [warnings, setWarnings] = useState<string[]>([]);
+  const [dimensions, setDimensions] = useState<Array<{ w: number; h: number }>>([]);
+  const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  function handleFile(file: File) {
+  async function readImage(file: File): Promise<{ preview: string; width: number; height: number; warning?: string }> {
+    const preview = URL.createObjectURL(file);
+    const image = new window.Image();
+
+    const dimensionsResult = await new Promise<{ width: number; height: number }>((resolve, reject) => {
+      image.onload = () => {
+        resolve({ width: image.naturalWidth, height: image.naturalHeight });
+      };
+      image.onerror = () => reject(new Error("Unable to read image"));
+      image.src = preview;
+    });
+
+    if (dimensionsResult.width < MIN_DIMENSION || dimensionsResult.height < MIN_DIMENSION) {
+      URL.revokeObjectURL(preview);
+      throw new Error(
+        `Image ${file.name} is too small (${dimensionsResult.width}x${dimensionsResult.height}px). Minimum ${MIN_DIMENSION}x${MIN_DIMENSION}px required.`
+      );
+    }
+
+    const warning =
+      dimensionsResult.width < RECOMMENDED_MIN || dimensionsResult.height < RECOMMENDED_MIN
+        ? `${file.name}: ${dimensionsResult.width}x${dimensionsResult.height}px. Recommended ${RECOMMENDED_MIN}x${RECOMMENDED_MIN}px+.`
+        : undefined;
+
+    return {
+      preview,
+      width: dimensionsResult.width,
+      height: dimensionsResult.height,
+      warning,
+    };
+  }
+
+  async function handleFiles(files: File[], append = false) {
     setError(null);
-    setWarning(null);
-    setDimensions(null);
 
-    if (!ACCEPTED_FORMATS.includes(file.type)) {
-      setError("Only JPG, PNG, and WebP images are accepted.");
+    if (files.length === 0) return;
+
+    const existingCount = append ? uploadedFiles.length : 0;
+    const nextCount = existingCount + files.length;
+    if (nextCount > MAX_FILES) {
+      setError(`You can upload up to ${MAX_FILES} images total.`);
       return;
     }
 
-    if (file.size > MAX_FILE_SIZE) {
-      setError("File size must be under 10 MB.");
-      return;
-    }
-
-    // Check image dimensions before accepting
-    const url = URL.createObjectURL(file);
-    const img = new window.Image();
-    img.onload = () => {
-      const w = img.naturalWidth;
-      const h = img.naturalHeight;
-      setDimensions({ w, h });
-
-      if (w < MIN_DIMENSION || h < MIN_DIMENSION) {
-        setError(
-          `Image is too small (${w}x${h}px). Minimum ${MIN_DIMENSION}x${MIN_DIMENSION}px required for AI generation.`
-        );
-        URL.revokeObjectURL(url);
+    for (const file of files) {
+      if (!ACCEPTED_FORMATS.includes(file.type)) {
+        setError("Only JPG, PNG, and WebP images are accepted.");
         return;
       }
 
-      if (w < RECOMMENDED_MIN || h < RECOMMENDED_MIN) {
-        setWarning(
-          `Image is ${w}x${h}px. For best results, use at least ${RECOMMENDED_MIN}x${RECOMMENDED_MIN}px.`
-        );
+      if (file.size > MAX_FILE_SIZE) {
+        setError(`File ${file.name} is larger than 10 MB.`);
+        return;
       }
+    }
 
-      setPreview(url);
-      setFileName(file.name);
-      setUploadedFile(file);
-    };
-    img.onerror = () => {
-      setError("Unable to read image. The file may be corrupt.");
-      URL.revokeObjectURL(url);
-    };
-    img.src = url;
+    if (!append) {
+      for (const existingPreview of previews) {
+        URL.revokeObjectURL(existingPreview);
+      }
+    }
+
+    try {
+      const results = await Promise.all(files.map((file) => readImage(file)));
+
+      const nextFiles = append ? [...uploadedFiles, ...files] : files;
+      const nextPreviews = append ? [...previews, ...results.map((result) => result.preview)] : results.map((result) => result.preview);
+      const nextDimensions = append
+        ? [...dimensions, ...results.map((result) => ({ w: result.width, h: result.height }))]
+        : results.map((result) => ({ w: result.width, h: result.height }));
+      const nextWarnings = append
+        ? [
+            ...warnings,
+            ...results.map((result) => result.warning).filter((warning): warning is string => Boolean(warning)),
+          ]
+        : results.map((result) => result.warning).filter((warning): warning is string => Boolean(warning));
+
+      setUploadedFiles(nextFiles);
+      setPreviews(nextPreviews);
+      setDimensions(nextDimensions);
+      setWarnings(nextWarnings);
+
+
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to read image. The file may be corrupt.");
+      if (!append) {
+        setUploadedFiles([]);
+        setPreviews([]);
+        setDimensions([]);
+        setWarnings([]);
+      }
+    }
   }
 
-  function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (file) handleFile(file);
+  function handleChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const files = event.target.files ? Array.from(event.target.files) : [];
+    void handleFiles(files, previews.length > 0);
+    event.target.value = "";
   }
 
   function handleDrop(e: React.DragEvent) {
     e.preventDefault();
-    const file = e.dataTransfer.files?.[0];
-    if (file) handleFile(file);
+    const files = Array.from(e.dataTransfer.files ?? []);
+    void handleFiles(files, previews.length > 0);
   }
 
   function handleDragOver(e: React.DragEvent) {
     e.preventDefault();
   }
 
-  function clearPreview() {
-    if (preview) URL.revokeObjectURL(preview);
-    setPreview(null);
-    setFileName(null);
-    setUploadedFile(null);
+  function clearPreviews() {
+    for (const preview of previews) {
+      URL.revokeObjectURL(preview);
+    }
+    setPreviews([]);
+    setUploadedFiles([]);
+    setDimensions([]);
+    setWarnings([]);
     setError(null);
     if (inputRef.current) inputRef.current.value = "";
   }
 
-  function handleUseImage() {
-    if (!uploadedFile || !preview) return;
+  function removeImage(index: number) {
+    const nextFiles = uploadedFiles.filter((_, currentIndex) => currentIndex !== index);
+    const nextPreviews = previews.filter((_, currentIndex) => currentIndex !== index);
+    const nextDimensions = dimensions.filter((_, currentIndex) => currentIndex !== index);
+
+    if (previews[index]) {
+      URL.revokeObjectURL(previews[index]);
+    }
+
+    setUploadedFiles(nextFiles);
+    setPreviews(nextPreviews);
+    setDimensions(nextDimensions);
+    setWarnings((currentWarnings) =>
+      currentWarnings.filter((warning) => !warning.startsWith(`${uploadedFiles[index]?.name}:`))
+    );
+
+
+
+    if (nextFiles.length === 0 && inputRef.current) {
+      inputRef.current.value = "";
+    }
+  }
+
+  function handleUseImages() {
+    if (uploadedFiles.length === 0 || previews.length === 0) return;
     const isAuthenticated = useAuthStore.getState().isAuthenticated;
     if (!isAuthenticated) {
       router.push("/login");
       return;
     }
+
     reset();
     setContentType(contentType);
-    setUploadedImage(uploadedFile, preview);
+    setUploadedImages(uploadedFiles, previews, "COMBINE");
     router.push(`/generate?uploadImage=true&type=${contentType}`);
   }
 
-  if (preview) {
+  if (previews.length > 0) {
+    const mainPreview = previews[0];
+
     return (
       <Card className="flex h-full flex-col overflow-hidden border-2 border-primary/40 bg-primary/5">
-        <div className={`relative w-full shrink-0 bg-muted ${variant === "horizontal" ? "aspect-[21/9] sm:aspect-[16/6]" : "aspect-[3/4]"}`}>
-          <Image
-            src={preview}
-            alt="Uploaded preview"
-            fill
-            className="object-cover"
-          />
-          <button
-            onClick={clearPreview}
-            className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full bg-background/80 text-muted-foreground transition hover:bg-background hover:text-foreground"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
-        </div>
         <div className="p-3">
-          <p className="truncate text-sm font-medium">
-            {fileName}
-          </p>
-          {dimensions && (
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              {dimensions.w} x {dimensions.h}px
+          <div className="mb-2 flex items-center justify-between">
+            <p className="text-sm font-medium">
+              {uploadedFiles.length} image{uploadedFiles.length > 1 ? "s" : ""} selected
             </p>
-          )}
-          {warning && (
+            <button
+              onClick={clearPreviews}
+              className="flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted-foreground transition hover:bg-muted hover:text-foreground"
+            >
+              <X className="h-3 w-3" />
+              Clear all
+            </button>
+          </div>
+
+          {/* Thumbnail grid */}
+          <div className={`grid gap-2 ${previews.length === 1 ? "grid-cols-1" : "grid-cols-2"}`}>
+            {previews.map((preview, index) => (
+              <div key={`preview-${index}`} className="group relative overflow-hidden rounded-lg border bg-muted">
+                <div className="relative aspect-square">
+                  <Image
+                    src={preview}
+                    alt={uploadedFiles[index]?.name || `Image ${index + 1}`}
+                    fill
+                    className="object-cover"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => removeImage(index)}
+                  className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-white opacity-0 transition-opacity group-hover:opacity-100 hover:bg-red-500"
+                  aria-label={`Remove ${uploadedFiles[index]?.name}`}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+                <p className="truncate px-1.5 py-1 text-[10px] text-muted-foreground">
+                  {uploadedFiles[index]?.name}
+                </p>
+              </div>
+            ))}
+          </div>
+
+          {warnings.length > 0 && (
             <div className="mt-1.5 flex items-start gap-1.5 rounded-md bg-yellow-50 px-2 py-1.5 text-xs text-yellow-700">
               <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
-              <span>{warning}</span>
+              <span>{warnings[0]}</span>
             </div>
           )}
+
           <div className="mt-auto pt-2">
-            <Button onClick={handleUseImage} className="w-full" size="sm">
-              Use This Image
+            {uploadedFiles.length < MAX_FILES && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => inputRef.current?.click()}
+                className="mb-2 w-full"
+                size="sm"
+              >
+                Add More Images
+              </Button>
+            )}
+            <Button onClick={handleUseImages} className="w-full" size="sm">
+              Use Selected Image{uploadedFiles.length > 1 ? "s" : ""}
             </Button>
           </div>
         </div>
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          multiple
+          onChange={handleChange}
+          className="hidden"
+        />
       </Card>
     );
   }
@@ -171,14 +287,14 @@ export function ImageUploadCard({ contentType, variant = "vertical" }: ImageUplo
       </div>
       <div className={`flex flex-col ${variant === "horizontal" ? "text-center sm:text-left" : "text-center"}`}>
         <p className="text-base font-semibold text-gray-900 group-hover:text-primary-700">
-          Upload your own image
+          Upload your own images
         </p>
         <p className={`mt-1 text-sm text-gray-500 ${variant === "horizontal" ? "" : ""}`}>
-          JPG, PNG, WebP up to 10 MB
+          JPG, PNG, WebP up to 10 MB each
         </p>
         <div className={`mt-2 flex items-center gap-1.5 text-xs text-gray-400 ${variant === "horizontal" ? "justify-center sm:justify-start" : "justify-center"}`}>
           <Info className="h-3.5 w-3.5 shrink-0" />
-          <span>Recommended {RECOMMENDED_MIN}x{RECOMMENDED_MIN}px+</span>
+          <span>Up to {MAX_FILES} images, recommended {RECOMMENDED_MIN}x{RECOMMENDED_MIN}px+</span>
         </div>
       </div>
       {error && (
@@ -188,6 +304,7 @@ export function ImageUploadCard({ contentType, variant = "vertical" }: ImageUplo
         ref={inputRef}
         type="file"
         accept="image/jpeg,image/png,image/webp"
+        multiple
         onChange={handleChange}
         className="hidden"
       />

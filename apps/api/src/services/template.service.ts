@@ -52,20 +52,39 @@ export class TemplateService {
     const skip = (page - 1) * limit;
 
     const where: Record<string, unknown> = { deletedAt: null };
-    if (contentType) where.contentType = contentType;
+    const andClauses: Record<string, unknown>[] = [];
+
+    if (contentType) {
+      andClauses.push({
+        OR: [
+          { contentType },
+          { category: { contentType } },
+        ],
+      });
+    }
+
     if (categoryId) where.categoryId = categoryId;
     if (isActive !== undefined) where.isActive = isActive;
     if (search) {
-      where.OR = [
+      andClauses.push({
+        OR: [
         { name: { contains: search, mode: "insensitive" } },
         { category: { name: { contains: search, mode: "insensitive" } } }
-      ];
+      ],
+      });
+    }
+
+    if (andClauses.length > 0) {
+      where.AND = andClauses;
     }
 
     let templates = await prisma.template.findMany({
       where,
       include: { category: { select: { id: true, name: true, slug: true } } },
-      orderBy: { sortOrder: "asc" },
+      orderBy: [
+        { sortOrder: "asc" },
+        { createdAt: "desc" },
+      ],
     });
 
     if (aspectRatio) {
@@ -101,7 +120,10 @@ export class TemplateService {
       include: {
         templates: {
           where: { isActive: true, deletedAt: null },
-          orderBy: { sortOrder: "asc" },
+          orderBy: [
+            { sortOrder: "asc" },
+            { createdAt: "desc" },
+          ],
           include: { category: { select: { id: true, name: true, slug: true } } }
         }
       }
@@ -145,8 +167,12 @@ export class TemplateService {
     // Verify category exists
     const category = await prisma.category.findUnique({
       where: { id: input.categoryId },
+      select: { id: true, contentType: true },
     });
     if (!category) throw new NotFoundError("Category");
+    if (category.contentType !== input.contentType) {
+      throw new BadRequestError("Template contentType must match category contentType");
+    }
 
     // Get image dimensions
     const metadata = await sharp(imageBuffer).metadata();
@@ -195,11 +221,16 @@ export class TemplateService {
     const template = await prisma.template.findUnique({ where: { id } });
     if (!template || template.deletedAt) throw new NotFoundError("Template");
 
-    if (input.categoryId) {
-      const category = await prisma.category.findUnique({
-        where: { id: input.categoryId },
-      });
-      if (!category) throw new NotFoundError("Category");
+    const nextCategoryId = input.categoryId ?? template.categoryId;
+    const nextContentType = input.contentType ?? template.contentType;
+
+    const category = await prisma.category.findUnique({
+      where: { id: nextCategoryId },
+      select: { id: true, contentType: true },
+    });
+    if (!category) throw new NotFoundError("Category");
+    if (category.contentType !== nextContentType) {
+      throw new BadRequestError("Template contentType must match category contentType");
     }
 
     return prisma.template.update({

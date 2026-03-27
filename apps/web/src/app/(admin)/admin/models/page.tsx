@@ -64,7 +64,7 @@ const KNOWN_PROVIDERS: Record<string, {
     models: [
       { id: "gpt-image-1-mini", label: "GPT Image 1 Mini (fast)" },
       { id: "gpt-image-1", label: "GPT Image 1 (balanced)" },
-      { id: "gpt-image-1.5", label: "GPT Image 1.5 (best quality)" },
+      { id: "gpt-image-1.5", label: "GPT Image 1.5 (if enabled on your account)" },
     ],
     docs: "https://platform.openai.com/docs/guides/images",
     configHints: "Config fields: quality (low/medium/high). Template image is used as style reference via /images/edits.",
@@ -78,7 +78,7 @@ const KNOWN_PROVIDERS: Record<string, {
       { id: "V_2A", label: "V2A (artistic, detailed)" },
     ],
     docs: "https://developer.ideogram.ai/api-reference",
-    configHints: "Config fields: style_type (DESIGN/GENERAL/REALISTIC), image_weight (0-100, default 35 — lower = better text placement, higher = closer to reference style). magic_prompt is OFF to preserve structured prompts.",
+    configHints: "Config fields: style_type (DESIGN/GENERAL/REALISTIC), image_weight (0-100, recommended: BASIC 58, STANDARD 64, PREMIUM 70). magic_prompt is OFF to preserve structured prompts.",
   },
 };
 
@@ -100,12 +100,18 @@ const TIER_STYLE_DEFAULTS: Record<string, string> = {
   PREMIUM: "DESIGN",
 };
 
+const TIER_IMAGE_WEIGHT_DEFAULTS: Record<string, number> = {
+  BASIC: 58,
+  STANDARD: 64,
+  PREMIUM: 70,
+};
+
 function configToStructured(config: Record<string, unknown> | null, tier: string): ModelConfig {
   const costCents = (config?.costCents as number) ?? 8;
   return {
     quality: (config?.quality as string) ?? TIER_QUALITY_DEFAULTS[tier] ?? "medium",
     style_type: (config?.style_type as string) ?? TIER_STYLE_DEFAULTS[tier] ?? "DESIGN",
-    image_weight: (config?.image_weight as number) ?? 35,
+    image_weight: (config?.image_weight as number) ?? TIER_IMAGE_WEIGHT_DEFAULTS[tier] ?? 64,
     costUsd: costCents / 100,
   };
 }
@@ -156,7 +162,7 @@ export default function AdminModelsPage() {
   const [creditCost, setCreditCost] = useState(5);
   const [priority, setPriority] = useState(0);
   const [modelConfig, setModelConfig] = useState<ModelConfig>({
-    quality: "medium", style_type: "DESIGN", image_weight: 35, costUsd: 0.08,
+    quality: "medium", style_type: "DESIGN", image_weight: TIER_IMAGE_WEIGHT_DEFAULTS.STANDARD, costUsd: 0.08,
   });
 
   const load = useCallback(async () => {
@@ -217,6 +223,8 @@ export default function AdminModelsPage() {
       setModelConfig((prev) => ({
         ...prev,
         quality: TIER_QUALITY_DEFAULTS[qualityTier] ?? "medium",
+        style_type: TIER_STYLE_DEFAULTS[qualityTier] ?? "DESIGN",
+        image_weight: TIER_IMAGE_WEIGHT_DEFAULTS[qualityTier] ?? 64,
       }));
     }
   }, [qualityTier, editId]);
@@ -228,7 +236,7 @@ export default function AdminModelsPage() {
     setCreditCost(5);
     setPriority(0);
     setModelConfig({
-      quality: "medium", style_type: "DESIGN", image_weight: 35, costUsd: 0.08,
+      quality: "medium", style_type: "DESIGN", image_weight: TIER_IMAGE_WEIGHT_DEFAULTS.STANDARD, costUsd: 0.08,
     });
     setEditId(null);
     setShowForm(false);
@@ -306,7 +314,7 @@ export default function AdminModelsPage() {
     acc[tier] = models
       .filter((m) => filterTier === "ALL" || m.qualityTier === filterTier)
       .filter((m) => m.qualityTier === tier)
-      .sort((a, b) => a.priority - b.priority);
+      .sort((a, b) => b.priority - a.priority);
     return acc;
   }, {} as Record<string, ModelPricing[]>);
 
@@ -538,7 +546,7 @@ export default function AdminModelsPage() {
         </CardHeader>
         <CardContent className="text-xs text-muted-foreground space-y-2">
           <ul className="list-inside list-disc space-y-1">
-            <li>Active provider with the <strong>lowest priority number</strong> is selected first (0 = highest priority).</li>
+            <li>Active provider with the <strong>highest priority number</strong> is selected first.</li>
             <li>If that provider&apos;s circuit breaker is open (too many failures), the next priority provider is used automatically.</li>
             <li>All tiers use <strong>AI generation</strong>. The template image is used as a style reference — the AI generates a new poster matching the style.</li>
             <li><strong>quality</strong> controls output fidelity (low/medium/high). Size is determined by frontend orientation choices.</li>
@@ -664,7 +672,7 @@ export default function AdminModelsPage() {
             />
           </FormField>
 
-          <FormField label="Priority" description="Lower = tried first (0 is highest)">
+          <FormField label="Priority" description="Higher = tried first (recommended: primary 100, fallback 50)">
             <Input
               type="number"
               min={0}

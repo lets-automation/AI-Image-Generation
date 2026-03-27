@@ -94,6 +94,12 @@ export default function AdminTemplatesPage() {
   const [savingDetails, setSavingDetails] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
+  // Edit image replacement state
+  const [editDetailsImageUrl, setEditDetailsImageUrl] = useState<string | null>(null);
+  const [editDetailsNewImage, setEditDetailsNewImage] = useState<File | null>(null);
+  const [editDetailsNewImagePreview, setEditDetailsNewImagePreview] = useState<string | null>(null);
+  const editImageInputRef = useRef<HTMLInputElement>(null);
+
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const imgRef = useRef<HTMLImageElement | null>(null);
   const [isDrawing, setIsDrawing] = useState(false);
@@ -344,13 +350,36 @@ export default function AdminTemplatesPage() {
     setEditDetailsIsActive(t.isActive);
     setEditDetailsContentType(t.contentType as "EVENT" | "POSTER");
     setEditDetailsSafeZoneCount(t.safeZones?.length ?? 0);
+    setEditDetailsImageUrl(t.imageUrl);
+    setEditDetailsNewImage(null);
+    setEditDetailsNewImagePreview(null);
     setShowEditDetails(true);
+  }
+
+  function handleEditImageSelect(file: File | undefined) {
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error("File size must be under 10 MB.");
+      return;
+    }
+    if (editDetailsNewImagePreview) {
+      URL.revokeObjectURL(editDetailsNewImagePreview);
+    }
+    const preview = URL.createObjectURL(file);
+    setEditDetailsNewImage(file);
+    setEditDetailsNewImagePreview(preview);
   }
 
   async function handleSaveDetails() {
     if (!editDetailsId) return;
     setSavingDetails(true);
     try {
+      // Upload replacement image if selected
+      if (editDetailsNewImage) {
+        const formData = new FormData();
+        formData.append("image", editDetailsNewImage);
+        await adminApi.replaceTemplateImage(editDetailsId, formData);
+      }
       await adminApi.updateTemplate(editDetailsId, {
         name: editDetailsName,
         categoryId: editDetailsCategoryId,
@@ -359,8 +388,13 @@ export default function AdminTemplatesPage() {
         metadata: { description: editDetailsPrompt.trim() || undefined },
       });
       toast.success("Template details updated");
+      if (editDetailsNewImagePreview) {
+        URL.revokeObjectURL(editDetailsNewImagePreview);
+      }
       setShowEditDetails(false);
       setEditDetailsId(null);
+      setEditDetailsNewImage(null);
+      setEditDetailsNewImagePreview(null);
       loadData();
     } catch {
       toast.error("Failed to update template");
@@ -513,11 +547,11 @@ export default function AdminTemplatesPage() {
             )}
           </FormField>
         </div>
-        <FormField label="AI Prompt (for model)" description="Describe what the AI model should generate for this template. This guides the model's output style, layout, and content for every generation using this template.">
+        <FormField label="AI Prompt (for model)" description="Describe the template as it already exists. This is context for style/layout, not a command to add new elements.">
           <Textarea
             value={uploadPrompt}
             onChange={(e) => setUploadPrompt(e.target.value)}
-            placeholder="e.g. Create a vibrant Diwali greeting card with warm golden tones, traditional diyas and rangoli patterns. Place the company name prominently at the top with decorative borders."
+            placeholder="e.g. This template features a warm golden Diwali theme with diya and rangoli accents. The layout keeps headline space at top-center and contact details near the bottom."
             rows={4}
             maxLength={2000}
           />
@@ -643,13 +677,65 @@ export default function AdminTemplatesPage() {
       {/* Edit Details Dialog */}
       <FormDialog
         open={showEditDetails}
-        onOpenChange={(open) => { if (!open) { setShowEditDetails(false); setEditDetailsId(null); } }}
+        onOpenChange={(open) => { if (!open) { setShowEditDetails(false); setEditDetailsId(null); if (editDetailsNewImagePreview) URL.revokeObjectURL(editDetailsNewImagePreview); setEditDetailsNewImage(null); setEditDetailsNewImagePreview(null); } }}
         title="Edit Template Details"
         description="Update template settings, category, and AI prompt."
         onSubmit={handleSaveDetails}
         submitLabel={savingDetails ? "Saving..." : "Save Changes"}
         loading={savingDetails}
       >
+        {/* Template Image Preview & Replace */}
+        <FormField label="Template Image">
+          <div className="flex items-start gap-4">
+            <div className="relative h-28 w-28 shrink-0 overflow-hidden rounded-lg border bg-muted">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={editDetailsNewImagePreview || editDetailsImageUrl || ""}
+                alt="Template"
+                className="h-full w-full object-cover"
+              />
+              {editDetailsNewImage && (
+                <div className="absolute inset-x-0 bottom-0 bg-black/60 px-1 py-0.5 text-center text-[10px] font-medium text-white">
+                  New image
+                </div>
+              )}
+            </div>
+            <div className="flex flex-col gap-2 pt-1">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => editImageInputRef.current?.click()}
+              >
+                <ImageIcon className="mr-2 h-3.5 w-3.5" />
+                Replace Image
+              </Button>
+              {editDetailsNewImage && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (editDetailsNewImagePreview) URL.revokeObjectURL(editDetailsNewImagePreview);
+                    setEditDetailsNewImage(null);
+                    setEditDetailsNewImagePreview(null);
+                    if (editImageInputRef.current) editImageInputRef.current.value = "";
+                  }}
+                  className="text-xs text-muted-foreground hover:text-foreground"
+                >
+                  <X className="mr-1 inline h-3 w-3" />
+                  Undo change
+                </button>
+              )}
+              <p className="text-[11px] text-muted-foreground">JPG, PNG, WebP · Max 10 MB</p>
+            </div>
+          </div>
+          <input
+            ref={editImageInputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            onChange={(e) => handleEditImageSelect(e.target.files?.[0])}
+            className="hidden"
+          />
+        </FormField>
         <div className="grid grid-cols-2 gap-4">
           <FormField label="Template Name" required>
             <Input value={editDetailsName} onChange={(e) => setEditDetailsName(e.target.value)} required />
@@ -699,11 +785,11 @@ export default function AdminTemplatesPage() {
             🎯 This template has <span className="font-semibold text-foreground">{editDetailsSafeZoneCount} safe zone{editDetailsSafeZoneCount > 1 ? "s" : ""}</span> configured. Use "Edit Zones" from the template card menu to modify them.
           </div>
         )}
-        <FormField label="AI Prompt (for model)" description="This prompt guides the AI model every time a user generates from this template.">
+        <FormField label="AI Prompt (for model)" description="Describe the existing template style/layout. Avoid command words like Create/Add/Place.">
           <Textarea
             value={editDetailsPrompt}
             onChange={(e) => setEditDetailsPrompt(e.target.value)}
-            placeholder="e.g. Create a vibrant festival greeting card with warm golden tones..."
+            placeholder="e.g. This template has a festive golden style with decorative accents and a clear top headline area."
             rows={4}
             maxLength={2000}
           />

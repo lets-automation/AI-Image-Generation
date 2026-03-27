@@ -32,6 +32,8 @@ export const createGenerationSchema = z
   .object({
     templateId: z.string().cuid().optional(),
     baseImageUrl: z.string().url("Invalid base image URL").nullable().optional(),
+    baseImageUrls: z.array(z.string().url("Invalid base image URL")).min(1).optional(),
+    customUploadMode: z.enum(["SEPARATE", "COMBINE"]).optional(),
     contentType: contentTypeEnum,
     categoryId: z.string().cuid("Invalid category ID").optional(),
     qualityTier: qualityTierEnum,
@@ -60,8 +62,8 @@ export const createGenerationSchema = z
     ),
     positionMap: z.record(z.string(), positionEnum),
   })
-  .refine((data) => data.templateId || data.baseImageUrl, {
-    message: "Either templateId or baseImageUrl must be provided",
+  .refine((data) => data.templateId || data.baseImageUrl || (data.baseImageUrls && data.baseImageUrls.length > 0), {
+    message: "Either templateId or baseImageUrl/baseImageUrls must be provided",
     path: ["templateId"],
   });
 

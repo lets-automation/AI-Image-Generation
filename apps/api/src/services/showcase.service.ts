@@ -113,11 +113,26 @@ export class ShowcaseService {
       throw new BadRequestError("Only completed generations can be reviewed");
     }
 
-    if (genData.showcaseStatus !== "PENDING") {
+    if (!["PENDING", "APPROVED", "REJECTED"].includes(genData.showcaseStatus)) {
       throw new BadRequestError(
-        `Cannot review: current status is "${genData.showcaseStatus}", expected "PENDING"`
+        `Cannot review: current status is "${genData.showcaseStatus}"`
       );
     }
+
+    const normalizedReason = rejectionReason?.trim();
+    if (decision === "REJECTED" && !normalizedReason) {
+      throw new BadRequestError("Rejection reason is required when rejecting a showcase request");
+    }
+
+    const normalizedCountries = targetCountries
+      ? Array.from(
+          new Set(
+            targetCountries
+              .map((code) => code.trim().toUpperCase())
+              .filter((code) => code.length === 2)
+          )
+        )
+      : undefined;
 
     // Validate category if provided
     if (categoryId) {
@@ -133,7 +148,7 @@ export class ShowcaseService {
     };
 
     if (decision === "REJECTED") {
-      updateData.showcaseRejectionReason = rejectionReason || "No reason provided";
+      updateData.showcaseRejectionReason = normalizedReason;
       updateData.isPublic = false; // Ensure rejected items aren't public
     } else {
       // APPROVED
@@ -145,8 +160,8 @@ export class ShowcaseService {
       updateData.showcaseCategoryId = categoryId;
     }
 
-    if (targetCountries !== undefined) {
-      updateData.showcaseTargetCountries = targetCountries;
+    if (normalizedCountries !== undefined) {
+      updateData.showcaseTargetCountries = normalizedCountries;
     }
 
     const updated = await prisma.generation.update({
@@ -169,14 +184,17 @@ export class ShowcaseService {
     // Audit log
     auditService.log({
       userId: adminUserId,
-      action: `showcase.${decision.toLowerCase()}`,
+      action: genData.showcaseStatus === "PENDING"
+        ? `showcase.${decision.toLowerCase()}`
+        : "showcase.update",
       entity: "generation",
       entityId: generationId,
       changes: {
+        previousStatus: genData.showcaseStatus,
         decision,
-        rejectionReason: rejectionReason ?? null,
+        rejectionReason: normalizedReason ?? null,
         categoryOverride: categoryId ?? null,
-        targetCountries: targetCountries ?? null,
+        targetCountries: normalizedCountries ?? null,
       },
     });
 

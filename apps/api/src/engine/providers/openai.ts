@@ -59,13 +59,47 @@ export class OpenAIProvider extends BaseProvider {
       ?? (input.params.size as string)
       ?? "1024x1024";
 
-    // Use /images/edits when we have reference images (template and/or logo)
-    if (input.baseImageBuffer || input.logoBuffer) {
-      return this.generateWithEdits(input, model, quality, size, apiKey);
-    }
+    try {
+      // Use /images/edits when we have reference images (template and/or logo)
+      if (input.baseImageBuffer || input.logoBuffer) {
+        return this.generateWithEdits(input, model, quality, size, apiKey);
+      }
 
-    // Fallback: /images/generations (text-to-image only, no reference)
-    return this.generateFromPrompt(input, model, quality, size, apiKey);
+      // Fallback: /images/generations (text-to-image only, no reference)
+      return this.generateFromPrompt(input, model, quality, size, apiKey);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "";
+      const fallbackModel = "gpt-image-1";
+      const canFallback =
+        model !== fallbackModel &&
+        this.isInvalidModelError(message);
+
+      if (!canFallback) {
+        throw err;
+      }
+
+      logger.warn(
+        { configuredModel: model, fallbackModel, reason: message },
+        "OpenAI model unavailable, retrying with fallback model"
+      );
+
+      if (input.baseImageBuffer || input.logoBuffer) {
+        return this.generateWithEdits(input, fallbackModel, quality, size, apiKey);
+      }
+
+      return this.generateFromPrompt(input, fallbackModel, quality, size, apiKey);
+    }
+  }
+
+  private isInvalidModelError(message: string): boolean {
+    const lower = message.toLowerCase();
+    return (
+      lower.includes("model") &&
+      (lower.includes("not found") ||
+        lower.includes("does not exist") ||
+        lower.includes("invalid") ||
+        lower.includes("unsupported"))
+    );
   }
 
   /**
@@ -94,6 +128,7 @@ export class OpenAIProvider extends BaseProvider {
     formData.append("quality", quality);
     formData.append("size", size);
     formData.append("n", "1");
+    formData.append("response_format", "b64_json");
 
     // Add template image as primary reference
     if (input.baseImageBuffer) {
@@ -146,7 +181,7 @@ export class OpenAIProvider extends BaseProvider {
 
     // Resize to the requested output dimensions
     const finalBuffer = await sharp(outputBuffer)
-      .resize(input.width, input.height, { fit: "fill" })
+      .resize(input.width, input.height, { fit: "cover", position: "center" })
       .png()
       .toBuffer();
 
@@ -185,6 +220,7 @@ export class OpenAIProvider extends BaseProvider {
         quality,
         size,
         n: 1,
+        response_format: "b64_json",
       }),
       signal: input.signal,
     });
@@ -201,7 +237,7 @@ export class OpenAIProvider extends BaseProvider {
     const outputBuffer = await this.extractImageFromResponse(data, input.signal);
 
     const finalBuffer = await sharp(outputBuffer)
-      .resize(input.width, input.height, { fit: "fill" })
+      .resize(input.width, input.height, { fit: "cover", position: "center" })
       .png()
       .toBuffer();
 
@@ -247,12 +283,27 @@ export class OpenAIProvider extends BaseProvider {
    * Maps width/height to the closest supported OpenAI size string.
    */
   private deriveSize(width: number, height: number): string | null {
-    const ratio = width / height;
-    if (ratio >= 1.4) return "1536x1024";      // landscape
-    if (ratio <= 0.7) return "1024x1536";       // portrait / story
-    if (ratio > 0.9 && ratio < 1.1) return "1024x1024"; // square
-    if (ratio >= 1.1) return "1536x1024";       // wide-ish → landscape
-    return "1024x1536";                         // tall-ish → portrait
+    if (!width || !height) return null;
+
+    const targetRatio = width / height;
+    const supportedSizes = [
+      { size: "1024x1024", ratio: 1 },
+      { size: "1024x1536", ratio: 2 / 3 },
+      { size: "1536x1024", ratio: 3 / 2 },
+    ];
+
+    let best = supportedSizes[0];
+    let smallestDiff = Math.abs(targetRatio - best.ratio);
+
+    for (const candidate of supportedSizes.slice(1)) {
+      const diff = Math.abs(targetRatio - candidate.ratio);
+      if (diff < smallestDiff) {
+        best = candidate;
+        smallestDiff = diff;
+      }
+    }
+
+    return best.size;
   }
 
   async healthCheck(): Promise<ProviderHealthStatus> {

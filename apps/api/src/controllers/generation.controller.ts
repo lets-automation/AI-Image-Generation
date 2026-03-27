@@ -31,6 +31,8 @@ export class GenerationController {
         userId: req.userId!,
         templateId: req.body.templateId,
         baseImageUrl: req.body.baseImageUrl,
+        baseImageUrls: req.body.baseImageUrls,
+        customUploadMode: req.body.customUploadMode,
         contentType: req.body.contentType,
         categoryId: req.body.categoryId,
         qualityTier: req.body.qualityTier,
@@ -209,6 +211,14 @@ export class GenerationController {
         const channel = `generation:${generationId}:status`;
 
         await redisSub.subscribe(channel);
+        redisSub.on("error", () => {
+          clearInterval(interval);
+          redisSub?.unsubscribe().catch(() => {});
+          redisSub?.quit().catch(() => {});
+          if (!res.writableEnded) {
+            res.end();
+          }
+        });
         redisSub.on("message", (_ch: string, message: string) => {
           try {
             res.write(`data: ${message}\n\n`);

@@ -29,8 +29,10 @@ interface CreateGenerationInput {
   userId: string;
   templateId?: string;
   baseImageUrl?: string;
+  baseImageUrls?: string[];
+  customUploadMode?: "SEPARATE" | "COMBINE";
   contentType: "EVENT" | "POSTER";
-  categoryId: string;
+  categoryId?: string;
   qualityTier: QualityTier;
   prompt: string;
   fieldValues: FieldValues;
@@ -65,7 +67,10 @@ export class GenerationService {
       userId,
       templateId,
       baseImageUrl,
+      baseImageUrls,
+      customUploadMode,
       contentType,
+      categoryId,
       qualityTier,
       prompt,
       fieldValues,
@@ -74,6 +79,19 @@ export class GenerationService {
       languages,
       isPublic,
     } = input;
+
+    const normalizedBaseImageUrls = (baseImageUrls ?? [])
+      .map((url) => url.trim())
+      .filter((url) => url.length > 0);
+
+    if (!templateId && baseImageUrl) {
+      normalizedBaseImageUrls.unshift(baseImageUrl);
+    }
+
+    const sourceImageUrls = Array.from(new Set(normalizedBaseImageUrls));
+    const isCustomUpload = !templateId;
+    const effectiveCustomUploadMode: "SEPARATE" | "COMBINE" =
+      customUploadMode === "COMBINE" ? "COMBINE" : "SEPARATE";
 
     // Use selected languages or fall back to all
     const selectedLanguages = languages && languages.length > 0 ? languages : ALL_LANGUAGES;
@@ -94,24 +112,33 @@ export class GenerationService {
       throw new ModerationError(promptResult.reason ?? "Content blocked");
     }
 
+    const moderateSingleValue = (fieldKey: string, rawValue: unknown): void => {
+      const fieldResult = moderateFieldValue(fieldKey, String(rawValue));
+      if (!fieldResult.allowed) {
+        auditService.logModerationBlock(
+          userId,
+          fieldResult.category ?? "unknown",
+          fieldResult.matchedPattern ?? ""
+        );
+        throw new ModerationError(fieldResult.reason ?? "Field content blocked");
+      }
+    };
+
     for (const [key, value] of Object.entries(fieldValues)) {
       if (Array.isArray(value)) {
-        // Grouped repeatable field — moderate each entry in the group
-        for (const entry of value) {
-          for (const [subKey, subVal] of Object.entries(entry)) {
-            const fieldResult = moderateFieldValue(`${key}.${subKey}`, String(subVal));
-            if (!fieldResult.allowed) {
-              auditService.logModerationBlock(userId, fieldResult.category ?? "unknown", fieldResult.matchedPattern ?? "");
-              throw new ModerationError(fieldResult.reason ?? "Field content blocked");
+        // Repeatable/grouped fields can be arrays of primitives or arrays of objects.
+        for (let i = 0; i < value.length; i++) {
+          const entry = value[i];
+          if (entry !== null && typeof entry === "object" && !Array.isArray(entry)) {
+            for (const [subKey, subVal] of Object.entries(entry)) {
+              moderateSingleValue(`${key}.${subKey}`, subVal);
             }
+          } else {
+            moderateSingleValue(`${key}.${i + 1}`, entry);
           }
         }
       } else {
-        const fieldResult = moderateFieldValue(key, String(value));
-        if (!fieldResult.allowed) {
-          auditService.logModerationBlock(userId, fieldResult.category ?? "unknown", fieldResult.matchedPattern ?? "");
-          throw new ModerationError(fieldResult.reason ?? "Field content blocked");
-        }
+        moderateSingleValue(key, value);
       }
     }
 
@@ -125,9 +152,14 @@ export class GenerationService {
       if (!template || template.deletedAt) throw new NotFoundError("Template");
       if (!template.isActive) throw new BadRequestError("Template is inactive");
       templateVersion = template.layoutVersion;
-    } else if (!baseImageUrl) {
-      throw new BadRequestError("Either templateId or baseImageUrl must be provided");
+    } else if (sourceImageUrls.length === 0) {
+      throw new BadRequestError("At least one base image is required for custom upload generation");
     }
+
+    const separateByImage = isCustomUpload && effectiveCustomUploadMode === "SEPARATE";
+    const targetImageUrls = separateByImage
+      ? sourceImageUrls
+      : [sourceImageUrls[0] ?? baseImageUrl ?? null];
 
     // 3b. Validate position conflicts
     if (hasConflicts(positionMap as Record<string, Position>)) {
@@ -154,47 +186,69 @@ export class GenerationService {
       }
     }
 
-    // 5. Get credit cost — multiply by number of selected languages
+    // 5. Get credit cost — multiply by total requested outputs
     const baseCreditCost = await this.getCreditCost(qualityTier);
-    const creditCost = baseCreditCost * selectedLanguages.length;
+    const outputCount = selectedLanguages.length * targetImageUrls.length;
+    const creditCost = baseCreditCost * outputCount;
 
     // 6. Generate a batchId to group all 10 language variants
     const batchId = uuidv4();
 
-    // 7. Create Generation records for selected languages
+    // 7. Create Generation records for requested outputs (languages x images in separate mode)
     const generations = [];
-    for (const lang of selectedLanguages) {
-      const generationHash = this.computeGenerationHash({ ...input, languages: [lang] });
-      const wantsPublic = isPublic ?? false;
+    const wantsPublic = isPublic ?? false;
 
-      // Auto-populate target countries from language when requesting showcase
-      const showcaseTargetCountries = wantsPublic
-        ? (LANGUAGE_COUNTRY_MAP[lang] ?? [])
-        : null;
+    for (let imageIndex = 0; imageIndex < targetImageUrls.length; imageIndex++) {
+      const targetImageUrl = targetImageUrls[imageIndex];
 
-      const generation = await prisma.generation.create({
-        data: {
-          userId,
-          templateId: templateId ?? null,
-          contentType,
-          qualityTier,
-          language: lang as any,
-          prompt,
-          fieldValues: fieldValues as any,
-          positionMap: positionMap as any,
-          orientation: input.orientation ?? null,
-          status: "QUEUED",
-          creditCost: lang === selectedLanguages[0] ? creditCost : 0, // Only first lang carries cost
-          templateVersion,
-          baseImageUrl: baseImageUrl ?? null,
-          generationHash,
-          batchId,
-          isPublic: false, // Stays false until admin approves
-          showcaseStatus: wantsPublic ? "PENDING" : "NONE",
-          showcaseTargetCountries: showcaseTargetCountries as any,
-        } as any,
-      });
-      generations.push(generation);
+      for (const [languageIndex, lang] of selectedLanguages.entries()) {
+        const generationHash = this.computeGenerationHash({
+          ...input,
+          baseImageUrl: targetImageUrl ?? undefined,
+          baseImageUrls: sourceImageUrls,
+          customUploadMode: effectiveCustomUploadMode,
+          languages: [lang],
+        });
+
+        // Auto-populate target countries from language when requesting showcase
+        const showcaseTargetCountries = wantsPublic
+          ? (LANGUAGE_COUNTRY_MAP[lang] ?? [])
+          : null;
+
+        const isFirstOutput = imageIndex === 0 && languageIndex === 0;
+        const generation = await prisma.generation.create({
+          data: {
+            userId,
+            templateId: templateId ?? null,
+            contentType,
+            qualityTier,
+            language: lang as any,
+            prompt,
+            fieldValues: fieldValues as any,
+            positionMap: positionMap as any,
+            orientation: input.orientation ?? null,
+            status: "QUEUED",
+            creditCost: isFirstOutput ? creditCost : 0, // Debit once for the batch
+            templateVersion,
+            baseImageUrl: targetImageUrl,
+            providerConfig: ({
+              ...(categoryId ? { requestCategoryId: categoryId } : {}),
+              ...(isCustomUpload
+                ? {
+                    customUploadMode: effectiveCustomUploadMode,
+                    sourceImageUrls,
+                  }
+                : {}),
+            } as any),
+            generationHash,
+            batchId,
+            isPublic: false, // Stays false until admin approves
+            showcaseStatus: wantsPublic ? "PENDING" : "NONE",
+            showcaseTargetCountries: showcaseTargetCountries as any,
+          } as any,
+        });
+        generations.push(generation);
+      }
     }
 
     // 7b. Debit credits once for the entire batch
@@ -346,33 +400,69 @@ export class GenerationService {
     const { page = 1, limit = 20, contentType, country } = options;
     const skip = (page - 1) * limit;
 
-    const where: Record<string, unknown> = {
+    const baseWhere: Record<string, unknown> = {
       showcaseStatus: "APPROVED",
       status: "COMPLETED",
       isPublic: true,
     };
-    if (contentType) where.contentType = contentType;
+    if (contentType) baseWhere.contentType = contentType;
 
-    // Fetch all matching generations, then filter by country in application code
-    // (Prisma JSON array_contains on nullable fields is tricky, app-level filtering is more reliable)
-    const allGenerations = await prisma.generation.findMany({
-      where,
-      include: {
-        user: { select: { name: true } },
-        template: {
-          select: {
-            name: true,
-            category: { select: { id: true, name: true } },
-          },
+    const include = {
+      user: { select: { name: true } },
+      template: {
+        select: {
+          name: true,
+          category: { select: { id: true, name: true } },
         },
-        showcaseCategory: { select: { id: true, name: true } },
-      } as any,
+      },
+      showcaseCategory: { select: { id: true, name: true } },
+    } as any;
+
+    // Preferred path: DB-level country filtering for efficient pagination.
+    if (country) {
+      const countryWhere = {
+        ...baseWhere,
+        OR: [
+          { showcaseTargetCountries: null },
+          { showcaseTargetCountries: { equals: [] } },
+          { showcaseTargetCountries: { array_contains: [country] } },
+        ],
+      } as any;
+
+      try {
+        const [generations, total] = await Promise.all([
+          prisma.generation.findMany({
+            where: countryWhere,
+            include,
+            orderBy: { createdAt: "desc" },
+            skip,
+            take: limit,
+          }),
+          prisma.generation.count({ where: countryWhere }),
+        ]);
+
+        return {
+          data: generations.map((g: any) => this.formatPublicResponse(g)),
+          meta: {
+            page,
+            limit,
+            total,
+            totalPages: Math.ceil(total / limit),
+          },
+        };
+      } catch (err) {
+        logger.warn({ err }, "DB-level country filter failed; using application fallback");
+      }
+    }
+
+    // Fallback path: application-level filtering to preserve behavior across JSON dialect differences.
+    const allGenerations = await prisma.generation.findMany({
+      where: baseWhere,
+      include,
       orderBy: { createdAt: "desc" },
-      // Fetch more than needed for country filtering, then paginate in-app
-      take: 500,
+      take: 2000,
     });
 
-    // Filter by country: show if targetCountries is null/empty (global) or includes user's country
     const filtered = country
       ? allGenerations.filter((g: any) => {
           const targets = g.showcaseTargetCountries as string[] | null;
@@ -480,7 +570,7 @@ export class GenerationService {
   private async getCreditCost(tier: QualityTier): Promise<number> {
     const pricing = await prisma.modelPricing.findFirst({
       where: { qualityTier: tier, isActive: true },
-      orderBy: { priority: "asc" },
+      orderBy: { priority: "desc" },
       select: { creditCost: true },
     });
 
@@ -490,6 +580,10 @@ export class GenerationService {
   private computeGenerationHash(input: CreateGenerationInput): string {
     const hashInput = JSON.stringify({
       templateId: input.templateId,
+      baseImageUrl: input.baseImageUrl,
+      baseImageUrls: input.baseImageUrls,
+      customUploadMode: input.customUploadMode,
+      categoryId: input.categoryId,
       fieldValues: input.fieldValues,
       positionMap: input.positionMap,
       prompt: input.prompt,

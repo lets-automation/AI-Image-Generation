@@ -1,6 +1,6 @@
 import sharp from "sharp";
 import type { Language, QualityTier } from "@ep/shared";
-import { renderOverlay, type OverlayField, type OverlayOptions } from "./overlay.js";
+import type { OverlayField, OverlayOptions } from "./overlay.js";
 import { getProviderForTier } from "../providers/registry.js";
 import { recordProviderCost } from "../../resilience/cost-guard.js";
 import { buildGenerationPrompt } from "../prompt-builder.js";
@@ -57,7 +57,6 @@ export async function renderEnhanced(
   const {
     baseImageUrl,
     baseImageBuffer,
-    safeZones,
     fields,
     language,
     imageWidth,
@@ -164,30 +163,7 @@ export async function renderEnhanced(
         // Provider still unavailable
       }
     }
-    logger.error(
-      { err },
-      "Enhanced renderer: AI generation failed, falling back to overlay-only result"
-    );
-
-    // Fallback: local overlay renderer (text/logo composited with Sharp/@napi-rs/canvas)
-    const overlayResult = await renderOverlay({
-      baseImageUrl,
-      baseImageBuffer,
-      safeZones,
-      fields,
-      language,
-      imageWidth,
-      imageHeight,
-      preview: false,
-    });
-
-    return {
-      buffer: overlayResult.buffer,
-      width: overlayResult.width,
-      height: overlayResult.height,
-      format: "png",
-      providerUsed: "fallback-overlay",
-      aiCostCents: 0,
-    };
+    logger.error({ err }, "Enhanced renderer: AI generation failed");
+    throw err;
   }
 }

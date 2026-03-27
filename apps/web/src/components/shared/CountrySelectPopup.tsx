@@ -71,11 +71,22 @@ export function CountrySelectPopup() {
     }
     setIsSaving(true);
     try {
-      await apiClient.patch("/users/me", { country: selectedCountry });
-      updateUser({ country: selectedCountry });
+      const normalizedCountry = selectedCountry.toUpperCase();
+      const response = await apiClient.patch<{ data: { country: string | null } }>("/users/me", {
+        country: normalizedCountry,
+      });
+      const savedCountry = response.data?.data?.country ?? normalizedCountry;
+      const meResponse = await apiClient.get<{ data: { country: string | null } }>("/auth/me");
+      const persistedCountry = meResponse.data?.data?.country ?? savedCountry;
+      if (!persistedCountry) {
+        toast.error("Country update was not persisted. Please try again.");
+        return;
+      }
+      updateUser({ country: persistedCountry });
       toast.success("Country saved!");
-    } catch {
-      toast.error("Failed to save country. Please try again.");
+    } catch (error: any) {
+      const message = error?.response?.data?.error?.message || "Failed to save country. Please try again.";
+      toast.error(message);
     } finally {
       setIsSaving(false);
     }

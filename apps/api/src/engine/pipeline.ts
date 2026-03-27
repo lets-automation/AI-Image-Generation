@@ -1,9 +1,9 @@
 import { prisma } from "../config/database.js";
 import { logger } from "../utils/logger.js";
+import sharp from "sharp";
 import { renderOverlay, type OverlayField } from "./renderers/overlay.js";
 import { renderEnhanced } from "./renderers/enhanced.js";
 import { uploadToCloudinary } from "./upload/cloudinary.js";
-import { loadAllFonts } from "./fonts/index.js";
 import { isTierSupported } from "./router.js";
 import { isTierAllowedByCostGuard } from "../resilience/cost-guard.js";
 import { getRedis } from "../config/redis.js";
@@ -64,6 +64,70 @@ async function publishStatus(
   }
 }
 
+async function buildCombinedReferenceImage(
+  imageUrls: string[],
+  width: number,
+  height: number
+): Promise<Buffer> {
+  const validUrls = imageUrls.map((url) => url.trim()).filter((url) => url.length > 0);
+
+  if (validUrls.length === 0) {
+    throw new Error("No source images provided for combine mode");
+  }
+
+  const imageBuffers = await Promise.all(
+    validUrls.map(async (url) => {
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch source image: ${response.status}`);
+      }
+      return Buffer.from(await response.arrayBuffer());
+    })
+  );
+
+  if (imageBuffers.length === 1) {
+    return sharp(imageBuffers[0])
+      .resize(width, height, { fit: "cover" })
+      .png()
+      .toBuffer();
+  }
+
+  const cols = Math.ceil(Math.sqrt(imageBuffers.length));
+  const rows = Math.ceil(imageBuffers.length / cols);
+  const tileWidth = Math.ceil(width / cols);
+  const tileHeight = Math.ceil(height / rows);
+
+  const composites = await Promise.all(
+    imageBuffers.map(async (buffer, index) => {
+      const tile = await sharp(buffer)
+        .resize(tileWidth, tileHeight, { fit: "cover" })
+        .png()
+        .toBuffer();
+
+      const col = index % cols;
+      const row = Math.floor(index / cols);
+
+      return {
+        input: tile,
+        left: col * tileWidth,
+        top: row * tileHeight,
+      };
+    })
+  );
+
+  return sharp({
+    create: {
+      width,
+      height,
+      channels: 3,
+      background: { r: 248, g: 248, b: 248 },
+    },
+  })
+    .composite(composites)
+    .png()
+    .toBuffer();
+}
+
 export async function executePipeline(
   input: PipelineInput
 ): Promise<PipelineResult> {
@@ -100,6 +164,18 @@ export async function executePipeline(
 
     // This is a fresh attempt — if it fails, we should refund
     shouldRefundOnFailure = true;
+
+    const generationProviderConfig =
+      generation.providerConfig && typeof generation.providerConfig === "object"
+        ? (generation.providerConfig as Record<string, unknown>)
+        : null;
+    const combineMode = generationProviderConfig?.customUploadMode === "COMBINE";
+    const sourceImageUrls = Array.isArray(generationProviderConfig?.sourceImageUrls)
+      ? generationProviderConfig.sourceImageUrls
+          .filter((value): value is string => typeof value === "string")
+          .map((value) => value.trim())
+          .filter((value) => value.length > 0)
+      : [];
 
     // Mark as processing
     await prisma.generation.update({
@@ -148,6 +224,7 @@ export async function executePipeline(
 
     // 3. Determine base image source and template metadata
     let baseImageUrl: string;
+    let baseImageBuffer: Buffer | undefined;
     let imageWidth: number;
     let imageHeight: number;
     let safeZones: PrismaJson.TemplateSafeZones = [];
@@ -179,8 +256,16 @@ export async function executePipeline(
       logger.info({ generationId, orientation, imageWidth, imageHeight }, "Using user-selected orientation");
     }
 
-    // 4. Load fonts (for overlay fallback)
-    loadAllFonts();
+    if (!generation.templateId && combineMode && sourceImageUrls.length > 1) {
+      try {
+        baseImageBuffer = await buildCombinedReferenceImage(sourceImageUrls, imageWidth, imageHeight);
+      } catch (err) {
+        logger.warn(
+          { generationId, err, sourceImageCount: sourceImageUrls.length },
+          "Failed to build combined reference image; falling back to primary source image"
+        );
+      }
+    }
 
     await publishStatus(generationId, "PROCESSING", 40);
 
@@ -189,43 +274,159 @@ export async function executePipeline(
     const positionMap = (generation.positionMap ?? {}) as Record<string, Position>;
 
     // Fetch field schemas to know field types
+    const requestCategoryId =
+      typeof generationProviderConfig?.requestCategoryId === "string"
+        ? generationProviderConfig.requestCategoryId
+        : null;
+    const schemaCategoryId = generation.template?.categoryId ?? requestCategoryId;
+
     let fieldSchemas: Array<{ fieldKey: string; fieldType: string }> = [];
-    if (generation.template?.categoryId) {
+    if (schemaCategoryId) {
       fieldSchemas = await prisma.fieldSchema.findMany({
-        where: { categoryId: generation.template.categoryId },
+        where: { categoryId: schemaCategoryId },
         select: { fieldKey: true, fieldType: true },
       });
     }
 
     const fieldTypeMap = new Map(fieldSchemas.map((f) => [f.fieldKey, f.fieldType]));
 
+    const toRenderableText = (raw: unknown): string | null => {
+      if (raw === null || raw === undefined) return null;
+      const text = String(raw).trim();
+      return text.length > 0 ? text : null;
+    };
+
+    const inferFieldType = (
+      fieldKey: string,
+      textValue: string,
+      schemaType?: string
+    ): OverlayField["fieldType"] => {
+      if (schemaType) return schemaType as OverlayField["fieldType"];
+
+      const key = fieldKey.toLowerCase();
+      if (key.includes("logo") || key.includes("image")) return "IMAGE";
+      if (key.includes("phone") || key.includes("mobile") || key.includes("tel")) return "PHONE";
+      if (key.includes("email") || textValue.includes("@")) return "EMAIL";
+      if (key.includes("url") || key.includes("website") || /^https?:\/\//i.test(textValue)) return "URL";
+      if (/^[-+]?\d+(\.\d+)?$/.test(textValue)) return "NUMBER";
+      return "TEXT";
+    };
+
     // Flatten field values — grouped (repeatable) entries become individual overlay fields
     const overlayFields: OverlayField[] = [];
     for (const [key, value] of Object.entries(fieldValues)) {
       if (Array.isArray(value)) {
-        // Grouped repeatable field — flatten each entry
+        // Repeatable values can be arrays of objects (grouped entries)
+        // or arrays of primitives (single repeatable field).
+        const groupedFallbackBySubKey = new Map<
+          string,
+          {
+            position: Position;
+            fieldType: OverlayField["fieldType"];
+            values: string[];
+          }
+        >();
+        const primitiveFallbackValues: string[] = [];
+
         for (let i = 0; i < value.length; i++) {
-          const entry = value[i] as Record<string, string | number>;
-          for (const [subKey, subVal] of Object.entries(entry)) {
-            const compositeKey = `${key}_${i + 1}_${subKey}`;
-            const pos = positionMap[compositeKey] ?? positionMap[subKey];
-            if (pos) {
-              overlayFields.push({
-                fieldKey: compositeKey,
-                value: String(subVal),
-                fieldType: (fieldTypeMap.get(subKey) ?? "TEXT") as OverlayField["fieldType"],
-                position: pos,
-              });
+          const entry = value[i];
+
+          if (entry !== null && typeof entry === "object" && !Array.isArray(entry)) {
+            for (const [subKey, subVal] of Object.entries(entry as Record<string, unknown>)) {
+              const textValue = toRenderableText(subVal);
+              if (!textValue) continue;
+
+              const compositeKey = `${key}_${i + 1}_${subKey}`;
+              const compositePos = positionMap[compositeKey];
+
+              if (compositePos) {
+                overlayFields.push({
+                  fieldKey: compositeKey,
+                  value: textValue,
+                  fieldType: inferFieldType(subKey, textValue, fieldTypeMap.get(subKey)),
+                  position: compositePos,
+                });
+                continue;
+              }
+
+              const fallbackPos = positionMap[subKey];
+              if (fallbackPos) {
+                const existing = groupedFallbackBySubKey.get(subKey);
+                if (existing) {
+                  existing.values.push(textValue);
+                } else {
+                  groupedFallbackBySubKey.set(subKey, {
+                    position: fallbackPos,
+                    fieldType: inferFieldType(subKey, textValue, fieldTypeMap.get(subKey)),
+                    values: [textValue],
+                  });
+                }
+              }
             }
+            continue;
+          }
+
+          const textValue = toRenderableText(entry);
+          if (!textValue) continue;
+
+          const compositeKey = `${key}_${i + 1}`;
+          const compositePos = positionMap[compositeKey];
+          if (compositePos) {
+            overlayFields.push({
+              fieldKey: compositeKey,
+              value: textValue,
+              fieldType: inferFieldType(key, textValue, fieldTypeMap.get(key)),
+              position: compositePos,
+            });
+          } else if (positionMap[key]) {
+            primitiveFallbackValues.push(textValue);
           }
         }
+
+        for (const [subKey, aggregate] of groupedFallbackBySubKey.entries()) {
+          overlayFields.push({
+            fieldKey: `${key}_${subKey}_combined`,
+            value: aggregate.values.join(" | "),
+            fieldType: aggregate.fieldType,
+            position: aggregate.position,
+          });
+        }
+
+        if (primitiveFallbackValues.length > 0 && positionMap[key]) {
+          const joinedValue = primitiveFallbackValues.join(" | ");
+          overlayFields.push({
+            fieldKey: `${key}_combined`,
+            value: joinedValue,
+            fieldType: inferFieldType(key, joinedValue, fieldTypeMap.get(key)),
+            position: positionMap[key],
+          });
+        }
       } else if (positionMap[key]) {
-        overlayFields.push({
-          fieldKey: key,
-          value: String(value),
-          fieldType: (fieldTypeMap.get(key) ?? "TEXT") as OverlayField["fieldType"],
-          position: positionMap[key],
-        });
+        const textValue = toRenderableText(value);
+        if (textValue) {
+          overlayFields.push({
+            fieldKey: key,
+            value: textValue,
+            fieldType: inferFieldType(key, textValue, fieldTypeMap.get(key)),
+            position: positionMap[key],
+          });
+        }
+      }
+    }
+
+    const duplicatePositions = new Map<Position, string[]>();
+    for (const field of overlayFields) {
+      const existing = duplicatePositions.get(field.position) ?? [];
+      existing.push(field.fieldKey);
+      duplicatePositions.set(field.position, existing);
+    }
+
+    for (const [position, fieldKeys] of duplicatePositions.entries()) {
+      if (fieldKeys.length > 1) {
+        logger.warn(
+          { generationId, position, fieldKeys },
+          "Multiple overlay fields mapped to same position; output may appear crowded"
+        );
       }
     }
 
@@ -247,6 +448,7 @@ export async function executePipeline(
 
         const overlayResult = await renderOverlay({
           baseImageUrl,
+          baseImageBuffer,
           safeZones,
           fields: overlayFields,
           language: generation.language as Language,
@@ -264,6 +466,7 @@ export async function executePipeline(
 
         const enhancedResult = await renderEnhanced({
           baseImageUrl,
+          baseImageBuffer,
           safeZones,
           fields: overlayFields,
           language: generation.language as Language,

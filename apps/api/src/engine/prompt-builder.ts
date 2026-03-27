@@ -85,7 +85,9 @@ export function buildGenerationPrompt(input: PromptBuilderInput): string {
     `2. You MUST include ALL text elements listed below. Do NOT skip any text element.\n` +
     `3. Place each text element in the EXACT position specified. Positions are non-negotiable.\n` +
     `4. The final image must look like a professionally designed poster with text naturally integrated into the scene (on banners, signs, boards, walls, or decorative elements — NOT flat overlay text).\n` +
-    `5. Every single digit of phone numbers must be rendered correctly — this is the #1 priority.`
+    `5. Every single digit of phone numbers must be rendered correctly — this is the #1 priority.\n` +
+    `6. Do NOT invent, infer, or add ANY extra text, numbers, dates, offers, names, logos, slogans, or watermarks that are not explicitly provided below.\n` +
+    `7. If a value is empty or not provided, leave it out. Do NOT fill missing content on your own.`
   );
 
   // Template description (if available)
@@ -263,7 +265,7 @@ export function buildGenerationPrompt(input: PromptBuilderInput): string {
   if (userPrompt.trim()) {
     styleRules.push(`\nUser's creative direction: ${userPrompt}`);
   } else {
-    styleRules.push(`\nNo specific creative direction provided. Use the reference template's style and create a professional, polished poster that integrates all the text elements naturally.`);
+    styleRules.push(`\nNo additional creative direction provided. Stay close to the reference style and include only the supplied content.`);
   }
 
   sections.push(styleRules.join("\n"));

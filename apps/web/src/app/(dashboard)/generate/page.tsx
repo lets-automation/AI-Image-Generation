@@ -128,14 +128,14 @@ interface OverlayEntry {
 
 function PreviewPanel({
   template,
-  uploadedImageUrl,
+  uploadedImageUrls,
   store,
   dynamicLanguages,
   onGenerate,
   isGenerating,
 }: {
   template: TemplateDetail | null;
-  uploadedImageUrl: string | null;
+  uploadedImageUrls: string[];
   store: Pick<GenerationState, "qualityTier" | "prompt" | "conflicts" | "fieldValues" | "positionMap" | "fieldSchemas" | "selectedLanguages">;
   dynamicLanguages: DynamicLanguage[];
   onGenerate: () => void;
@@ -150,11 +150,13 @@ function PreviewPanel({
       .catch(() => {});
   }, []);
 
-  const imageUrl = template?.imageUrl ?? uploadedImageUrl;
+  const imageUrl = template?.imageUrl ?? uploadedImageUrls[0] ?? null;
   const tierCfg = TIER_CONFIGS[store.qualityTier];
-  const isCustomUpload = !template && !!uploadedImageUrl;
+  const isCustomUpload = !template && uploadedImageUrls.length > 0;
   const numLanguages = isCustomUpload ? 1 : Math.max(1, store.selectedLanguages.length);
-  const hasTemplate = !!template || !!uploadedImageUrl;
+  const customOutputCount = 1;
+  const totalCredits = tierCfg.defaultCreditCost * numLanguages * customOutputCount;
+  const hasTemplate = !!template || uploadedImageUrls.length > 0;
   const hasNoConflicts = store.conflicts.length === 0;
   const hasRemainingGenerations = !genLimits || genLimits.remaining > 0;
   const canGenerate = hasTemplate && hasNoConflicts && hasRemainingGenerations && !isGenerating;
@@ -162,78 +164,131 @@ function PreviewPanel({
   const autoLangCode = isCustomUpload ? getLanguageFromCountry(user?.country) : null;
   const autoLangLabel = autoLangCode ? dynamicLanguages.find(l => l.code === autoLangCode)?.nativeLabel || autoLangCode : "English";
 
-  // Build overlay entries: fields that have both a value and a position
+  const resolveGroupedCompositeValue = (
+    compositeKey: string
+  ): { value: string | number; schemaKey: string } | null => {
+    for (const [groupKey, groupValue] of Object.entries(store.fieldValues)) {
+      if (!Array.isArray(groupValue)) continue;
+
+      for (let i = 0; i < groupValue.length; i++) {
+        const entry = groupValue[i];
+        if (entry === null || typeof entry !== "object" || Array.isArray(entry)) continue;
+
+        for (const [subKey, subValue] of Object.entries(entry as Record<string, string | number>)) {
+          if (`${groupKey}_${i + 1}_${subKey}` === compositeKey) {
+            return { value: subValue, schemaKey: subKey };
+          }
+        }
+      }
+    }
+    return null;
+  };
+
+  // Build overlay entries: fields that have both a value and a position.
+  // Supports regular field keys and grouped composite keys.
   const overlayEntries: OverlayEntry[] = Object.entries(store.positionMap)
-    .filter(([key]) => store.fieldValues[key])
     .map(([key, position]) => {
-      const schema = store.fieldSchemas.find((s) => s.fieldKey === key);
+      const directValue = store.fieldValues[key];
+      const groupedValue = directValue === undefined ? resolveGroupedCompositeValue(key) : null;
+      const rawValue = directValue ?? groupedValue?.value;
+
+      if (rawValue === undefined || rawValue === null) return null;
+      const textValue = String(rawValue).trim();
+      if (!textValue) return null;
+
+      const schemaKey = groupedValue?.schemaKey ?? key;
+      const schema = store.fieldSchemas.find((s) => s.fieldKey === schemaKey);
+
       return {
         fieldKey: key,
-        value: String(store.fieldValues[key]),
+        value: textValue,
         position,
         isImage: schema?.fieldType === "IMAGE",
       };
-    });
+    })
+    .filter((entry): entry is OverlayEntry => entry !== null);
 
   return (
     <div className="space-y-4">
       {/* Preview Image with text overlay */}
       <div className="overflow-hidden rounded-lg border bg-muted/30">
         {imageUrl ? (
-          <div className="relative">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={imageUrl}
-              alt={template?.name ?? "Preview"}
-              className="h-auto w-full"
-            />
+          <div>
+            {/* Multiple uploaded images grid */}
+            {isCustomUpload && uploadedImageUrls.length > 1 ? (
+              <div className={`grid gap-1.5 p-2 ${uploadedImageUrls.length <= 2 ? "grid-cols-2" : "grid-cols-3"}`}>
+                {uploadedImageUrls.map((url, idx) => (
+                  <div key={idx} className="relative overflow-hidden rounded-md bg-muted">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={url}
+                      alt={`Uploaded image ${idx + 1}`}
+                      className="aspect-square w-full object-cover"
+                    />
+                    <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/50 to-transparent px-1.5 pb-1 pt-3">
+                      <span className="text-[9px] font-medium text-white/90">Image {idx + 1}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              /* Single image preview with overlay */
+              <div className="relative">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={imageUrl}
+                  alt={template?.name ?? "Preview"}
+                  className="h-auto w-full"
+                />
 
-            {/* Live overlay grid */}
-            {overlayEntries.length > 0 && (
-              <div className="absolute inset-0 grid grid-cols-3 grid-rows-3 p-2">
-                {overlayEntries.map((entry) => {
-                  const css = POSITION_CSS[entry.position];
-                  if (!css) return null;
-                  return (
-                    <div
-                      key={entry.fieldKey}
-                      className="pointer-events-none flex max-h-full max-w-full overflow-hidden"
-                      style={{
-                        gridRow: css.row === "start" ? 1 : css.row === "center" ? 2 : 3,
-                        gridColumn: css.col === "start" ? 1 : css.col === "center" ? 2 : 3,
-                        alignSelf: css.row === "start" ? "start" : css.row === "center" ? "center" : "end",
-                        justifySelf: css.col as "start" | "center" | "end",
-                      }}
-                    >
-                      {entry.isImage ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={entry.value}
-                          alt="overlay"
-                          className="h-8 w-8 rounded object-contain drop-shadow-md"
-                        />
-                      ) : (
-                        <span
-                          className="rounded-sm bg-black/40 px-1.5 py-0.5 text-[10px] font-semibold leading-tight text-white drop-shadow-md"
+                {/* Live overlay grid */}
+                {overlayEntries.length > 0 && (
+                  <div className="absolute inset-0 grid grid-cols-3 grid-rows-3 p-2">
+                    {overlayEntries.map((entry) => {
+                      const css = POSITION_CSS[entry.position];
+                      if (!css) return null;
+                      return (
+                        <div
+                          key={entry.fieldKey}
+                          className="pointer-events-none flex max-h-full max-w-full overflow-hidden"
                           style={{
-                            textAlign: css.col === "end" ? "right" : css.col === "center" ? "center" : "left",
+                            gridRow: css.row === "start" ? 1 : css.row === "center" ? 2 : 3,
+                            gridColumn: css.col === "start" ? 1 : css.col === "center" ? 2 : 3,
+                            alignSelf: css.row === "start" ? "start" : css.row === "center" ? "center" : "end",
+                            justifySelf: css.col as "start" | "center" | "end",
                           }}
                         >
-                          {entry.value.length > 30 ? entry.value.slice(0, 30) + "..." : entry.value}
-                        </span>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+                          {entry.isImage ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={entry.value}
+                              alt="overlay"
+                              className="h-8 w-8 rounded object-contain drop-shadow-md"
+                            />
+                          ) : (
+                            <span
+                              className="rounded-sm bg-black/40 px-1.5 py-0.5 text-[10px] font-semibold leading-tight text-white drop-shadow-md"
+                              style={{
+                                textAlign: css.col === "end" ? "right" : css.col === "center" ? "center" : "left",
+                              }}
+                            >
+                              {entry.value.length > 30 ? entry.value.slice(0, 30) + "..." : entry.value}
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
 
-            {/* "Preview" badge */}
-            {overlayEntries.length > 0 && (
-              <div className="absolute bottom-2 left-2">
-                <span className="rounded bg-black/60 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wider text-white/80">
-                  Live Preview
-                </span>
+                {/* "Preview" badge */}
+                {overlayEntries.length > 0 && (
+                  <div className="absolute bottom-2 left-2">
+                    <span className="rounded bg-black/60 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wider text-white/80">
+                      Live Preview
+                    </span>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -303,16 +358,22 @@ function PreviewPanel({
             </TooltipProvider>
           )}
         </div>
+
         <Separator className="my-3" />
         <div className="flex items-center justify-between">
           <span className="text-sm font-medium">Cost</span>
           <span className="text-lg font-bold">
-            {tierCfg.defaultCreditCost * numLanguages} credits
+            {totalCredits} credits
           </span>
         </div>
-        {!isCustomUpload && numLanguages > 1 && (
+        {(!isCustomUpload && numLanguages > 1) && (
           <p className="mt-1 text-[10px] text-muted-foreground text-right">
             {tierCfg.defaultCreditCost} per language × {numLanguages} languages
+          </p>
+        )}
+        {isCustomUpload && uploadedImageUrls.length > 1 && (
+          <p className="mt-1 text-[10px] text-muted-foreground text-right">
+            {uploadedImageUrls.length} images combined into 1 output
           </p>
         )}
       </div>
@@ -353,7 +414,7 @@ function PreviewPanel({
         ) : (
           <>
             <Sparkles className="mr-2 h-4 w-4" />
-            Generate ({tierCfg.defaultCreditCost} credits)
+            Generate ({totalCredits} credits)
           </>
         )}
       </Button>
@@ -630,10 +691,13 @@ export default function GeneratePage() {
   }, [store]);
 
   const handleSubmit = useCallback(async () => {
-    const isCustomUpload = !store.selectedTemplate && !!store.uploadedImageUrl;
+    const customImageCount = store.uploadedImageUrls.length > 0
+      ? store.uploadedImageUrls.length
+      : (store.uploadedImageUrl ? 1 : 0);
+    const isCustomUpload = !store.selectedTemplate && customImageCount > 0;
 
     // Validate required fields before submission
-    if (!store.selectedTemplate && !store.uploadedImageUrl) {
+    if (!store.selectedTemplate && customImageCount === 0) {
       toast.error("Please select a template or upload an image");
       return;
     }
@@ -680,12 +744,21 @@ export default function GeneratePage() {
     setBatchResults([]);
     try {
       await store.submitGeneration();
-      const langCount = store.selectedLanguages.length;
-      toast.success(
-        langCount === dynamicLanguages.length
-          ? "Generation started! Processing all languages..."
-          : `Generation started! Processing ${langCount} language${langCount > 1 ? "s" : ""}...`
-      );
+      if (isCustomUpload) {
+        const outputCount = 1;
+        toast.success(
+          outputCount > 1
+            ? `Generation started! Processing ${outputCount} custom outputs...`
+            : "Generation started! Processing custom output..."
+        );
+      } else {
+        const langCount = store.selectedLanguages.length;
+        toast.success(
+          langCount === dynamicLanguages.length
+            ? "Generation started! Processing all languages..."
+            : `Generation started! Processing ${langCount} language${langCount > 1 ? "s" : ""}...`
+        );
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Generation failed";
       toast.error(msg);
@@ -742,7 +815,7 @@ export default function GeneratePage() {
         {/* Left: Controls */}
         <div className="space-y-3">
           {/* Category */}
-          {!store.uploadedImageUrl && (
+          {store.uploadedImageUrls.length === 0 && !store.uploadedImageUrl && (
             <Section
               title="Category"
               subtitle={store.selectedCategory?.name}
@@ -936,78 +1009,109 @@ export default function GeneratePage() {
                                   </div>
                                   {/* Entry fields */}
                                   <div className="space-y-3 p-3">
-                                    {schemas.map((schema) => (
-                                      <div key={schema.fieldKey}>
-                                        <Label className="mb-1 text-xs flex items-center gap-1">
-                                          {schema.label}
-                                          {schema.isRequired && <span className="text-destructive">*</span>}
-                                        </Label>
-                                        {schema.fieldType === "IMAGE" ? (
-                                          <div className="space-y-3 mt-1">
-                                            {entry[schema.fieldKey] ? (
-                                              <div className="relative inline-block shrink-0">
-                                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                                <img
-                                                  src={String(entry[schema.fieldKey])}
-                                                  alt={schema.label}
-                                                  className="h-24 w-24 rounded-lg border object-cover shadow-sm bg-white"
-                                                />
-                                                <button
-                                                  type="button"
-                                                  onClick={() => store.setGroupFieldValue(groupKey, idx, schema.fieldKey, "")}
-                                                  className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full border border-white bg-destructive text-[12px] font-bold text-white shadow hover:scale-105 active:scale-95 transition-all"
-                                                >
-                                                  x
-                                                </button>
+                                    {schemas.map((schema) => {
+                                      const compositePositionKey = `${groupKey}_${idx + 1}_${schema.fieldKey}`;
+                                      const hasConflict = store.conflicts.some((c) => c.fields.includes(compositePositionKey));
+
+                                      return (
+                                        <div key={schema.fieldKey} className={schema.hasPosition ? "flex items-start gap-3" : ""}>
+                                          <div className={schema.hasPosition ? "flex-1 min-w-0" : ""}>
+                                            <Label className="mb-1 text-xs flex items-center gap-1">
+                                              {schema.label}
+                                              {schema.isRequired && <span className="text-destructive">*</span>}
+                                            </Label>
+                                            {schema.fieldType === "IMAGE" ? (
+                                              <div className="space-y-3 mt-1">
+                                                {entry[schema.fieldKey] ? (
+                                                  <div className="relative inline-block shrink-0">
+                                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                                    <img
+                                                      src={String(entry[schema.fieldKey])}
+                                                      alt={schema.label}
+                                                      className="h-24 w-24 rounded-lg border object-cover shadow-sm bg-white"
+                                                    />
+                                                    <button
+                                                      type="button"
+                                                      onClick={() => store.setGroupFieldValue(groupKey, idx, schema.fieldKey, "")}
+                                                      className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full border border-white bg-destructive text-[12px] font-bold text-white shadow hover:scale-105 active:scale-95 transition-all"
+                                                    >
+                                                      x
+                                                    </button>
+                                                  </div>
+                                                ) : (
+                                                  <label className="relative flex cursor-pointer items-center gap-4 rounded-xl border-2 border-dashed border-blue-400/60 bg-blue-50/50 p-4 transition-colors hover:bg-blue-50/90 dark:border-blue-800/60 dark:bg-blue-950/20 dark:hover:bg-blue-900/40">
+                                                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-600 dark:bg-blue-900/50 dark:text-blue-400">
+                                                      <Upload className="h-4 w-4" />
+                                                    </div>
+                                                    <div className="flex-1 space-y-1 pr-4">
+                                                      <p className="text-sm font-semibold text-blue-700 dark:text-blue-300">
+                                                        Upload image
+                                                      </p>
+                                                      <p className="text-[10px] text-muted-foreground">
+                                                        JPG, PNG, WebP up to 10 MB
+                                                      </p>
+                                                    </div>
+                                                    <input
+                                                      type="file"
+                                                      accept="image/jpeg,image/png,image/webp"
+                                                      className="absolute inset-0 hidden"
+                                                      onChange={(e) => {
+                                                        const file = e.target.files?.[0];
+                                                        if (file) {
+                                                          const url = URL.createObjectURL(file);
+                                                          store.setGroupFieldValue(groupKey, idx, schema.fieldKey, url);
+                                                        }
+                                                        e.target.value = "";
+                                                      }}
+                                                    />
+                                                  </label>
+                                                )}
                                               </div>
+                                            ) : schema.fieldType === "TEXTAREA" ? (
+                                              <Textarea
+                                                value={String(entry[schema.fieldKey] ?? "")}
+                                                onChange={(e) => store.setGroupFieldValue(groupKey, idx, schema.fieldKey, e.target.value)}
+                                                placeholder={schema.placeholder ?? ""}
+                                                rows={2}
+                                                className="text-xs"
+                                              />
                                             ) : (
-                                              <label className="relative flex cursor-pointer items-center gap-4 rounded-xl border-2 border-dashed border-blue-400/60 bg-blue-50/50 p-4 transition-colors hover:bg-blue-50/90 dark:border-blue-800/60 dark:bg-blue-950/20 dark:hover:bg-blue-900/40">
-                                                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-600 dark:bg-blue-900/50 dark:text-blue-400">
-                                                  <Upload className="h-4 w-4" />
-                                                </div>
-                                                <div className="flex-1 space-y-1 pr-4">
-                                                  <p className="text-sm font-semibold text-blue-700 dark:text-blue-300">
-                                                    Upload image
-                                                  </p>
-                                                  <p className="text-[10px] text-muted-foreground">
-                                                    JPG, PNG, WebP up to 10 MB
-                                                  </p>
-                                                </div>
-                                                <input
-                                                  type="file"
-                                                  accept="image/jpeg,image/png,image/webp"
-                                                  className="absolute inset-0 hidden"
-                                                  onChange={(e) => {
-                                                    const file = e.target.files?.[0];
-                                                    if (file) {
-                                                      const url = URL.createObjectURL(file);
-                                                      store.setGroupFieldValue(groupKey, idx, schema.fieldKey, url);
-                                                    }
-                                                    e.target.value = "";
-                                                  }}
-                                                />
-                                              </label>
+                                              <Input
+                                                type={schema.fieldType === "PHONE" || schema.fieldType === "NUMBER" ? "tel" : schema.fieldType === "EMAIL" ? "email" : "text"}
+                                                value={String(entry[schema.fieldKey] ?? "")}
+                                                onChange={(e) => store.setGroupFieldValue(groupKey, idx, schema.fieldKey, e.target.value)}
+                                                placeholder={schema.placeholder ?? ""}
+                                                className="h-9 text-sm"
+                                              />
                                             )}
                                           </div>
-                                        ) : schema.fieldType === "TEXTAREA" ? (
-                                          <Textarea
-                                            value={String(entry[schema.fieldKey] ?? "")}
-                                            onChange={(e) => store.setGroupFieldValue(groupKey, idx, schema.fieldKey, e.target.value)}
-                                            placeholder={schema.placeholder ?? ""}
-                                            rows={2}
-                                            className="text-xs"
-                                          />
-                                        ) : (
-                                          <Input
-                                            type={schema.fieldType === "PHONE" || schema.fieldType === "NUMBER" ? "tel" : schema.fieldType === "EMAIL" ? "email" : "text"}
-                                            value={String(entry[schema.fieldKey] ?? "")}
-                                            onChange={(e) => store.setGroupFieldValue(groupKey, idx, schema.fieldKey, e.target.value)}
-                                            placeholder={schema.placeholder ?? ""}
-                                            className="h-9 text-sm"
-                                          />
-                                        )}
-                                      </div>
-                                    ))}
+
+                                          {schema.hasPosition && (
+                                            <div className="w-[150px] shrink-0">
+                                              <p className="mb-1 text-[10px] text-muted-foreground">Position</p>
+                                              <Select
+                                                value={store.positionMap[compositePositionKey] ?? store.positionMap[schema.fieldKey] ?? ""}
+                                                onValueChange={(value) => store.setPosition(compositePositionKey, value as Position)}
+                                              >
+                                                <SelectTrigger className={cn("h-9 text-xs", hasConflict ? "border-destructive text-destructive" : "") }>
+                                                  <SelectValue placeholder="Position" />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                  {ALL_POSITIONS.map((pos) => (
+                                                    <SelectItem key={pos} value={pos}>
+                                                      {POSITION_LABELS[pos].label}
+                                                    </SelectItem>
+                                                  ))}
+                                                </SelectContent>
+                                              </Select>
+                                              {hasConflict && (
+                                                <p className="mt-0.5 text-[10px] text-destructive">Conflict</p>
+                                              )}
+                                            </div>
+                                          )}
+                                        </div>
+                                      );
+                                    })}
                                   </div>
                                 </div>
                               ))}
@@ -1062,7 +1166,7 @@ export default function GeneratePage() {
           </Section>
 
           {/* Languages */}
-          {!store.uploadedImageUrl && (
+          {store.uploadedImageUrls.length === 0 && !store.uploadedImageUrl && (
             <Section
               title="Languages"
               subtitle={
@@ -1240,7 +1344,9 @@ export default function GeneratePage() {
         <div className="lg:sticky lg:top-24 lg:self-start">
           <PreviewPanel
             template={template}
-            uploadedImageUrl={store.uploadedImageUrl}
+            uploadedImageUrls={store.uploadedImageUrls.length > 0
+              ? store.uploadedImageUrls
+              : (store.uploadedImageUrl ? [store.uploadedImageUrl] : [])}
             store={store}
             dynamicLanguages={dynamicLanguages}
             onGenerate={handleSubmit}

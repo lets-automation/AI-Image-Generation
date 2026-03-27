@@ -483,9 +483,17 @@ const showcaseListQuery = z.object({
 
 const reviewShowcaseSchema = z.object({
   decision: z.enum(["APPROVED", "REJECTED"]),
-  rejectionReason: z.string().max(500).optional(),
+  rejectionReason: z.string().trim().max(500).optional(),
   categoryId: z.string().cuid().optional(),
-  targetCountries: z.array(z.string().length(2)).optional(),
+  targetCountries: z.array(z.string().trim().length(2).transform((v) => v.toUpperCase())).optional(),
+}).superRefine((value, ctx) => {
+  if (value.decision === "REJECTED" && !value.rejectionReason) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["rejectionReason"],
+      message: "Rejection reason is required when decision is REJECTED",
+    });
+  }
 });
 
 router.get(

@@ -39,6 +39,12 @@ export class IdeogramProvider extends BaseProvider {
 
   private readonly baseUrl = "https://api.ideogram.ai";
 
+  private readonly defaultImageWeightByTier: Record<QualityTier, number> = {
+    BASIC: 58,
+    STANDARD: 64,
+    PREMIUM: 70,
+  };
+
   /** Fetch API key from DB first, fallback to env */
   private async getApiKey(): Promise<string> {
     return credentialService.getCredentialOrEnv("ideogram_api_key");
@@ -134,7 +140,10 @@ export class IdeogramProvider extends BaseProvider {
     // Default 35 (not 80) — high weight makes reference image dominate,
     // leaving no room for text placement and producing garbled results.
     // Admins can tune this per-tier via ModelPricing config.
-    const imageWeight = (input.params.image_weight as number) ?? 35;
+    const tier = (input.params.tier as QualityTier) ?? "STANDARD";
+    const imageWeight = (input.params.image_weight as number)
+      ?? this.defaultImageWeightByTier[tier]
+      ?? 64;
     formData.append("image_weight", String(imageWeight));
 
     const response = await fetch(`${this.baseUrl}/remix`, {
@@ -156,7 +165,7 @@ export class IdeogramProvider extends BaseProvider {
 
     // Resize to the requested output dimensions
     const finalBuffer = await sharp(outputBuffer)
-      .resize(input.width, input.height, { fit: "fill" })
+      .resize(input.width, input.height, { fit: "cover", position: "center" })
       .png()
       .toBuffer();
 
@@ -218,7 +227,7 @@ export class IdeogramProvider extends BaseProvider {
     const outputBuffer = await this.extractImageFromResponse(data, input.signal);
 
     const finalBuffer = await sharp(outputBuffer)
-      .resize(input.width, input.height, { fit: "fill" })
+      .resize(input.width, input.height, { fit: "cover", position: "center" })
       .png()
       .toBuffer();
 
@@ -261,15 +270,29 @@ export class IdeogramProvider extends BaseProvider {
    * Ideogram uses named aspect ratios instead of pixel sizes.
    */
   private getAspectRatio(width: number, height: number): string {
-    const ratio = width / height;
+    const targetRatio = width / height;
+    const supportedRatios: Array<{ aspect: string; ratio: number }> = [
+      { aspect: "ASPECT_1_1", ratio: 1 },
+      { aspect: "ASPECT_3_4", ratio: 3 / 4 },
+      { aspect: "ASPECT_4_3", ratio: 4 / 3 },
+      { aspect: "ASPECT_9_16", ratio: 9 / 16 },
+      { aspect: "ASPECT_16_9", ratio: 16 / 9 },
+      { aspect: "ASPECT_2_3", ratio: 2 / 3 },
+      { aspect: "ASPECT_3_2", ratio: 3 / 2 },
+    ];
 
-    if (ratio >= 1.7) return "ASPECT_16_9";      // 16:9 landscape
-    if (ratio >= 1.4) return "ASPECT_3_2";        // 3:2 landscape
-    if (ratio >= 1.2) return "ASPECT_4_3";        // 4:3 landscape
-    if (ratio >= 0.9) return "ASPECT_1_1";        // 1:1 square
-    if (ratio >= 0.7) return "ASPECT_3_4";        // 3:4 portrait
-    if (ratio >= 0.55) return "ASPECT_2_3";       // 2:3 portrait
-    return "ASPECT_9_16";                         // 9:16 portrait
+    let best = supportedRatios[0];
+    let smallestDiff = Math.abs(targetRatio - best.ratio);
+
+    for (const candidate of supportedRatios.slice(1)) {
+      const diff = Math.abs(targetRatio - candidate.ratio);
+      if (diff < smallestDiff) {
+        best = candidate;
+        smallestDiff = diff;
+      }
+    }
+
+    return best.aspect;
   }
 
   async healthCheck(): Promise<ProviderHealthStatus> {

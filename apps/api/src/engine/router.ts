@@ -23,7 +23,7 @@ import type { QualityTier } from "@ep/shared";
 
 export type RendererType = "overlay" | "enhanced";
 
-export interface TierRoute {
+interface TierRoute {
   tier: QualityTier;
   renderer: RendererType;
   requiresAI: boolean;
@@ -50,13 +50,6 @@ const TIER_ROUTES: Record<QualityTier, TierRoute> = {
     description: "AI-generated poster — highest quality & artistic detail",
   },
 };
-
-/**
- * Get the renderer route for a quality tier.
- */
-export function getRouteForTier(tier: QualityTier): TierRoute {
-  return TIER_ROUTES[tier];
-}
 
 /**
  * Check if a tier is currently supported.

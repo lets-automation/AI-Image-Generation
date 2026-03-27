@@ -59,11 +59,22 @@ router.patch(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const userId = req.userId;
-      const body = req.body;
+      const body = req.body as {
+        name?: string;
+        phone?: string | null;
+        avatarUrl?: string | null;
+        country?: string;
+      };
+
+      const updateData: Record<string, unknown> = {};
+      if (body.name !== undefined) updateData.name = body.name;
+      if (body.phone !== undefined) updateData.phone = body.phone;
+      if (body.avatarUrl !== undefined) updateData.avatarUrl = body.avatarUrl;
+      if (body.country !== undefined) updateData.country = body.country.toUpperCase();
 
       const updated = await prisma.user.update({
         where: { id: userId },
-        data: body,
+        data: updateData,
         select: {
           id: true,
           email: true,

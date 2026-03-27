@@ -60,7 +60,7 @@ export async function getProviderForTier(
   // Get all active pricing entries for this tier, ordered by priority
   const pricingEntries = await prisma.modelPricing.findMany({
     where: { qualityTier: tier, isActive: true },
-    orderBy: { priority: "asc" },
+    orderBy: { priority: "desc" },
   });
 
   if (pricingEntries.length === 0) {
@@ -151,4 +151,3 @@ export function resetCircuitBreaker(providerName: string): void {
   }
 }
 
-export { PROVIDERS, circuitBreakers };

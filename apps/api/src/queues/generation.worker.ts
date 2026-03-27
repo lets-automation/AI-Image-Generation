@@ -5,8 +5,6 @@ import { executePipeline } from "../engine/pipeline.js";
 import { loadAllFonts } from "../engine/fonts/index.js";
 import { logger } from "../utils/logger.js";
 import { QUEUE_NAME, type GenerationJobData } from "./generation.queue.js";
-import { prisma } from "../config/database.js";
-import { subscriptionService } from "../services/subscription.service.js";
 
 let workerInstance: Worker | null = null;
 
@@ -70,7 +68,6 @@ export function startGenerationWorker(): Worker {
 
   workerInstance.on("failed", async (job, error) => {
     const generationId = job?.data?.generationId;
-    const userId = job?.data?.userId;
     const attemptsMade = job?.attemptsMade ?? 0;
     const maxAttempts = job?.opts?.attempts ?? 3;
 
@@ -85,32 +82,8 @@ export function startGenerationWorker(): Worker {
       "Generation job failed"
     );
 
-    // Refund credits when all retries are exhausted
-    if (attemptsMade >= maxAttempts && generationId && userId) {
-      try {
-        const generation = await prisma.generation.findUnique({
-          where: { id: generationId },
-          select: { creditCost: true, batchId: true },
-        });
-
-        if (generation && generation.creditCost > 0) {
-          await subscriptionService.refundCredit(
-            userId,
-            generation.creditCost,
-            generationId
-          );
-          logger.info(
-            { userId, generationId, creditCost: generation.creditCost },
-            "Credits refunded for permanently failed generation"
-          );
-        }
-      } catch (refundErr) {
-        logger.error(
-          { err: refundErr, userId, generationId },
-          "Failed to refund credits for failed generation"
-        );
-      }
-    }
+    // Credits are refunded by pipeline failure handling.
+    // Keep worker failure handler non-mutating to avoid double-refunds.
   });
 
   workerInstance.on("error", (error) => {

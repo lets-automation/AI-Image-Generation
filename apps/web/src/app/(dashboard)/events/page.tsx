@@ -42,7 +42,6 @@ export default function EventsPage() {
     const store = useBrowseStore.getState();
     if (store.contentType !== "EVENT") {
       setContentType("EVENT");
-      setAspectRatio("SQUARE"); // default for Events based on mockup
     }
     fetchCategories("EVENT");
     fetchFestivals("EVENT");
@@ -90,11 +89,12 @@ export default function EventsPage() {
       <>
           <div className="mb-6 flex flex-col items-center gap-4 md:flex-row md:justify-between">
             <Tabs
-              value={aspectRatio || "SQUARE"}
-              onValueChange={(v) => setAspectRatio(v as any)}
+              value={aspectRatio || "ALL"}
+              onValueChange={(v) => setAspectRatio(v === "ALL" ? null : v as any)}
               className="w-full md:w-auto"
             >
-              <TabsList className="grid h-12 w-full grid-cols-3 rounded-xl border border-gray-200/50 bg-gray-100/80 p-1">
+              <TabsList className="grid h-12 w-full grid-cols-4 rounded-xl border border-gray-200/50 bg-gray-100/80 p-1">
+                <TabsTrigger value="ALL" className="rounded-lg text-gray-600 transition-all data-[state=active]:bg-white data-[state=active]:text-primary-700 data-[state=active]:shadow-sm">All</TabsTrigger>
                 <TabsTrigger value="SQUARE" className="rounded-lg text-gray-600 transition-all data-[state=active]:bg-white data-[state=active]:text-primary-700 data-[state=active]:shadow-sm">Square</TabsTrigger>
                 <TabsTrigger value="PORTRAIT" className="rounded-lg text-gray-600 transition-all data-[state=active]:bg-white data-[state=active]:text-primary-700 data-[state=active]:shadow-sm">Portrait</TabsTrigger>
                 <TabsTrigger value="LANDSCAPE" className="rounded-lg text-gray-600 transition-all data-[state=active]:bg-white data-[state=active]:text-primary-700 data-[state=active]:shadow-sm">Landscape</TabsTrigger>

@@ -1,4 +1,4 @@
-import type { Language, Position, QualityTier, ContentType } from "./enums.js";
+import type { Position, QualityTier, ContentType } from "./enums.js";
 
 // ─── API Response Wrapper ─────────────────────────────────
 
@@ -100,14 +100,17 @@ export type FieldValues = Record<string, FieldValueEntry | GroupedFieldValues>;
 export interface CreateGenerationRequest {
   templateId?: string;
   baseImageUrl?: string;
+  baseImageUrls?: string[];
+  customUploadMode?: "SEPARATE" | "COMBINE";
   contentType: ContentType;
-  categoryId: string;
+  categoryId?: string;
   qualityTier: QualityTier;
-  /** @deprecated All 10 languages generated automatically */
-  language?: Language;
+  orientation?: "SQUARE" | "PORTRAIT" | "LANDSCAPE" | "STORY" | "WIDE" | null;
+  languages?: string[];
   prompt: string;
   fieldValues: FieldValues;
   positionMap: Record<string, Position>;
+  isPublic?: boolean;
 }
 
 export interface GenerationResponse {

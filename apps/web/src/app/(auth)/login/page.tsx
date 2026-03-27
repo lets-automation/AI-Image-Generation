@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/stores/auth.store";
 import toast from "react-hot-toast";
 import Script from "next/script";
+import { detectClientCountryCode } from "@/lib/country-detect";
 
 declare global {
   interface Window {
@@ -44,7 +45,8 @@ export default function LoginPage() {
       client_id: GOOGLE_CLIENT_ID,
       callback: async (response: { credential: string }) => {
         try {
-          await useAuthStore.getState().googleLogin(response.credential);
+          const country = detectClientCountryCode();
+          await useAuthStore.getState().googleLogin(response.credential, country);
           toast.success("Welcome!");
           const user = useAuthStore.getState().user;
           if (user?.role === "ADMIN" || user?.role === "SUPER_ADMIN") {
