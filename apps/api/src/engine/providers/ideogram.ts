@@ -40,9 +40,9 @@ export class IdeogramProvider extends BaseProvider {
   private readonly baseUrl = "https://api.ideogram.ai";
 
   private readonly defaultImageWeightByTier: Record<QualityTier, number> = {
-    BASIC: 58,
-    STANDARD: 64,
-    PREMIUM: 70,
+    BASIC: 80,
+    STANDARD: 87,
+    PREMIUM: 93,
   };
 
   /** Fetch API key from DB first, fallback to env */

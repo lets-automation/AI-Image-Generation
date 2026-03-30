@@ -458,11 +458,15 @@ export function buildIdeogramPrompt(input: PromptBuilderInput): string {
 
   const parts: string[] = [];
 
+  // User creative direction comes FIRST — it has the highest priority for Ideogram
+  // (e.g., "place the ring on a female hand", "keep exact product design")
+  if (userPrompt.trim()) {
+    parts.push(userPrompt.trim());
+  }
+
   // Opening: style reference from template
   if (templateDescription) {
-    parts.push(`${templateDescription}.`);
-  } else {
-    parts.push(`A professionally designed poster.`);
+    parts.push(`Reference style: ${templateDescription}.`);
   }
 
   // Language instruction (upfront, naturally stated)
@@ -504,11 +508,6 @@ export function buildIdeogramPrompt(input: PromptBuilderInput): string {
     parts.push(`Include the provided logo image at the ${logoPos}, reproduced exactly.`);
   } else {
     parts.push(`Do not add any logo, watermark, or brand mark.`);
-  }
-
-  // User creative direction
-  if (userPrompt.trim()) {
-    parts.push(userPrompt.trim());
   }
 
   // Strict content guard — brief, no block formatting
