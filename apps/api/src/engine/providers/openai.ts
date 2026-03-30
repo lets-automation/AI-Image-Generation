@@ -125,7 +125,6 @@ export class OpenAIProvider extends BaseProvider {
     const formData = new FormData();
     formData.append("model", model);
     formData.append("prompt", input.prompt);
-    formData.append("quality", quality);
     formData.append("size", size);
     formData.append("n", "1");
     formData.append("response_format", "b64_json");
