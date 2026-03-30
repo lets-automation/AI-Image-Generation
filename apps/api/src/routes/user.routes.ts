@@ -50,7 +50,7 @@ const updateProfileSchema = z.object({
   name: z.string().min(2).max(100).trim().optional(),
   phone: z.string().min(10).max(15).optional().nullable(),
   avatarUrl: z.string().url().optional().nullable(),
-  country: z.string().length(2).toUpperCase().optional(),
+  country: z.string().length(2).optional(),
 });
 
 router.patch(
