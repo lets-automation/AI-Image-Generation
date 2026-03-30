@@ -130,6 +130,7 @@ function PreviewPanel({
   template,
   uploadedImageUrls,
   store,
+  tierCreditCosts,
   dynamicLanguages,
   onGenerate,
   isGenerating,
@@ -137,6 +138,7 @@ function PreviewPanel({
   template: TemplateDetail | null;
   uploadedImageUrls: string[];
   store: Pick<GenerationState, "qualityTier" | "prompt" | "conflicts" | "fieldValues" | "positionMap" | "fieldSchemas" | "selectedLanguages">;
+  tierCreditCosts: Record<QualityTier, number>;
   dynamicLanguages: DynamicLanguage[];
   onGenerate: () => void;
   isGenerating: boolean;
@@ -152,10 +154,11 @@ function PreviewPanel({
 
   const imageUrl = template?.imageUrl ?? uploadedImageUrls[0] ?? null;
   const tierCfg = TIER_CONFIGS[store.qualityTier];
+  const selectedTierCost = tierCreditCosts[store.qualityTier] ?? tierCfg.defaultCreditCost;
   const isCustomUpload = !template && uploadedImageUrls.length > 0;
   const numLanguages = isCustomUpload ? 1 : Math.max(1, store.selectedLanguages.length);
   const customOutputCount = 1;
-  const totalCredits = tierCfg.defaultCreditCost * numLanguages * customOutputCount;
+  const totalCredits = selectedTierCost * numLanguages * customOutputCount;
   const hasTemplate = !!template || uploadedImageUrls.length > 0;
   const hasNoConflicts = store.conflicts.length === 0;
   const hasRemainingGenerations = !genLimits || genLimits.remaining > 0;
@@ -368,7 +371,7 @@ function PreviewPanel({
         </div>
         {(!isCustomUpload && numLanguages > 1) && (
           <p className="mt-1 text-[10px] text-muted-foreground text-right">
-            {tierCfg.defaultCreditCost} per language × {numLanguages} languages
+            {selectedTierCost} per language × {numLanguages} languages
           </p>
         )}
         {isCustomUpload && uploadedImageUrls.length > 1 && (
@@ -625,6 +628,9 @@ export default function GeneratePage() {
   const [template, setTemplate] = useState<TemplateDetail | null>(null);
   const [categories, setCategories] = useState<CategoryItem[]>([]);
   const [dynamicLanguages, setDynamicLanguages] = useState<DynamicLanguage[]>([]);
+  const [tierCreditCosts, setTierCreditCosts] = useState<Record<QualityTier, number>>(() =>
+    Object.fromEntries(ALL_TIERS.map((tier) => [tier, TIER_CONFIGS[tier].defaultCreditCost])) as Record<QualityTier, number>
+  );
   const [isLoading, setIsLoading] = useState(true);
   const [batchResults, setBatchResults] = useState<BatchResult[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -638,12 +644,19 @@ export default function GeneratePage() {
     async function loadData() {
       try {
         const effectiveContentType = contentType ?? store.contentType ?? undefined;
-        const [cats, langsRes] = await Promise.all([
+        const [cats, langsRes, tierPricing] = await Promise.all([
           userApi.listCategories(effectiveContentType),
           apiClient.get<{ data: DynamicLanguage[] }>("/languages").then((r) => r.data.data),
+          apiClient
+            .get<{ success: boolean; data: Record<QualityTier, number> }>("/generations/tier-pricing")
+            .then((r) => r.data.data)
+            .catch(() => null),
         ]);
         setCategories(cats);
         setDynamicLanguages(langsRes);
+        if (tierPricing) {
+          setTierCreditCosts((prev) => ({ ...prev, ...tierPricing }));
+        }
 
         if (templateId) {
           const tmpl = await userApi.getTemplate(templateId);
@@ -1291,6 +1304,7 @@ export default function GeneratePage() {
             <div className="grid gap-3 sm:grid-cols-3">
               {ALL_TIERS.map((tier) => {
                 const cfg = TIER_CONFIGS[tier];
+                const tierCost = tierCreditCosts[tier] ?? cfg.defaultCreditCost;
                 const isSelected = store.qualityTier === tier;
                 return (
                   <button
@@ -1305,7 +1319,7 @@ export default function GeneratePage() {
                   >
                     <div className="flex items-center justify-between">
                       <p className="font-medium">{cfg.label}</p>
-                      <Badge variant="secondary">{cfg.defaultCreditCost} credits</Badge>
+                      <Badge variant="secondary">{tierCost} credits</Badge>
                     </div>
                     <p className="mt-1 text-xs text-muted-foreground">{cfg.description}</p>
                     <p className="mt-1.5 text-xs font-medium text-primary">AI-powered</p>
@@ -1348,6 +1362,7 @@ export default function GeneratePage() {
               ? store.uploadedImageUrls
               : (store.uploadedImageUrl ? [store.uploadedImageUrl] : [])}
             store={store}
+            tierCreditCosts={tierCreditCosts}
             dynamicLanguages={dynamicLanguages}
             onGenerate={handleSubmit}
             isGenerating={store.isSubmitting}

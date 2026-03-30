@@ -6,6 +6,7 @@ import { prisma } from "../config/database.js";
 import type { Request, Response, NextFunction } from "express";
 import { uploadLogo, uploadBaseImage, scanUploadedImage } from "../middleware/upload.js";
 import { uploadToCloudinary } from "../engine/upload/cloudinary.js";
+import { logger } from "../utils/logger.js";
 
 const router = Router();
 
@@ -46,12 +47,30 @@ router.get("/me", async (req: Request, res: Response, next: NextFunction) => {
 });
 
 // PATCH /me — Update current user profile
+const isoCountryCodeSchema = z
+  .string()
+  .trim()
+  .toUpperCase()
+  .regex(/^[A-Z]{2}$/, "Country must be a valid ISO 3166-1 alpha-2 code");
+
 const updateProfileSchema = z.object({
   name: z.string().min(2).max(100).trim().optional(),
   phone: z.string().min(10).max(15).optional().nullable(),
   avatarUrl: z.string().url().optional().nullable(),
-  country: z.string().length(2).optional(),
+  country: isoCountryCodeSchema.optional(),
+  countryCode: isoCountryCodeSchema.optional(),
 });
+
+const userProfileSelect = {
+  id: true,
+  email: true,
+  name: true,
+  phone: true,
+  role: true,
+  avatarUrl: true,
+  country: true,
+  createdAt: true,
+} as const;
 
 router.patch(
   "/me",
@@ -64,28 +83,55 @@ router.patch(
         phone?: string | null;
         avatarUrl?: string | null;
         country?: string;
+        countryCode?: string;
       };
 
       const updateData: Record<string, unknown> = {};
       if (body.name !== undefined) updateData.name = body.name;
       if (body.phone !== undefined) updateData.phone = body.phone;
       if (body.avatarUrl !== undefined) updateData.avatarUrl = body.avatarUrl;
-      if (body.country !== undefined) updateData.country = body.country.toUpperCase();
+      const requestedCountry = body.country ?? body.countryCode;
+      if (requestedCountry !== undefined) updateData.country = requestedCountry;
 
-      const updated = await prisma.user.update({
+      if (Object.keys(updateData).length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: "No valid profile fields provided",
+        });
+      }
+
+      let updated = await prisma.user.update({
         where: { id: userId },
         data: updateData,
-        select: {
-          id: true,
-          email: true,
-          name: true,
-          phone: true,
-          role: true,
-          avatarUrl: true,
-          country: true,
-          createdAt: true,
-        },
+        select: userProfileSelect,
       });
+
+      if (updateData.country !== undefined && updated.country !== updateData.country) {
+        const normalizedCountry = String(updateData.country);
+        logger.warn(
+          {
+            userId,
+            requestedCountry: normalizedCountry,
+            persistedCountry: updated.country,
+          },
+          "Country mismatch after Prisma update; applying SQL fallback"
+        );
+
+        await prisma.$executeRaw`
+          UPDATE "users"
+          SET "country" = ${normalizedCountry}
+          WHERE "id" = ${userId}
+        `;
+
+        const reloaded = await prisma.user.findUnique({
+          where: { id: userId },
+          select: userProfileSelect,
+        });
+
+        if (reloaded) {
+          updated = reloaded;
+        }
+      }
 
       res.json({ success: true, data: updated });
     } catch (err) {

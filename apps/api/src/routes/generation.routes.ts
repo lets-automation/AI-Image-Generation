@@ -67,6 +67,12 @@ router.get(
   }
 );
 
+// GET /api/v1/generations/tier-pricing — Get effective per-tier credit costs
+router.get(
+  "/tier-pricing",
+  (req, res, next) => generationController.tierPricing(req, res, next)
+);
+
 // POST /api/v1/generations — Create new generation
 // Protected by: rate limiter + daily cap + concurrent limit + Zod validation
 router.post(

@@ -6,6 +6,19 @@ import { ForbiddenError } from "../utils/errors.js";
 
 export class GenerationController {
   /**
+   * GET /api/v1/generations/tier-pricing
+   * Get effective per-tier credit costs for the current environment.
+   */
+  async tierPricing(_req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const pricing = await generationService.getEffectiveTierCreditCosts();
+      res.json({ success: true, data: pricing });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
    * POST /api/v1/generations
    * Create a new generation request.
    */

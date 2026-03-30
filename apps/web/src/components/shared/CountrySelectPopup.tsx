@@ -74,9 +74,16 @@ export function CountrySelectPopup() {
       const normalizedCountry = selectedCountry.toUpperCase();
       const response = await apiClient.patch<{ success: boolean; data: { country: string | null } }>(
         "/users/me",
-        { country: normalizedCountry }
+        {
+          country: normalizedCountry,
+          countryCode: normalizedCountry,
+        }
       );
-      const savedCountry = response.data?.data?.country;
+      let savedCountry = response.data?.data?.country;
+      if (!savedCountry) {
+        const me = await apiClient.get<{ success: boolean; data: { country: string | null } }>("/users/me");
+        savedCountry = me.data?.data?.country;
+      }
       if (!savedCountry) {
         // DB returned null — the update did not persist
         toast.error("Country could not be saved. Please try again.");

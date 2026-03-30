@@ -9,7 +9,7 @@ import {
   ModerationError,
 } from "../utils/errors.js";
 import { logger } from "../utils/logger.js";
-import { TIER_CONFIGS, IDEMPOTENCY, ALL_LANGUAGES, LANGUAGE_COUNTRY_MAP, type QualityTier } from "@ep/shared";
+import { TIER_CONFIGS, IDEMPOTENCY, ALL_LANGUAGES, LANGUAGE_COUNTRY_MAP, ALL_TIERS, type QualityTier } from "@ep/shared";
 import { isTierSupported } from "../engine/router.js";
 import { isTierAllowedByCostGuard, recordCreditRevenue } from "../resilience/cost-guard.js";
 import { hasConflicts } from "../engine/layout/collision.js";
@@ -47,6 +47,32 @@ interface CreateGenerationInput {
 // ─── Service ─────────────────────────────────────────────
 
 export class GenerationService {
+  /**
+   * Return effective credit costs per quality tier.
+   * Uses highest-priority active ModelPricing for each tier, with shared defaults as fallback.
+   */
+  async getEffectiveTierCreditCosts(): Promise<Record<QualityTier, number>> {
+    const costs = Object.fromEntries(
+      ALL_TIERS.map((tier) => [tier, TIER_CONFIGS[tier].defaultCreditCost])
+    ) as Record<QualityTier, number>;
+
+    const activePricing = await prisma.modelPricing.findMany({
+      where: { isActive: true },
+      orderBy: [{ qualityTier: "asc" }, { priority: "desc" }],
+      select: { qualityTier: true, creditCost: true },
+    });
+
+    const seen = new Set<QualityTier>();
+    for (const row of activePricing) {
+      const tier = row.qualityTier as QualityTier;
+      if (seen.has(tier)) continue;
+      costs[tier] = row.creditCost;
+      seen.add(tier);
+    }
+
+    return costs;
+  }
+
   /**
    * Create a new generation request.
    *
