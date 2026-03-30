@@ -29,6 +29,7 @@ npm run build
 
 # 3. Build API
 echo "🔧 Building API..."
+cd "$API_DIR"
 npm run build
 
 # 4. Build Web
