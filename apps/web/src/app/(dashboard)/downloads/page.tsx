@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { apiClient } from "@/lib/api-client";
 import { useRequireAuth } from "@/hooks/useAuth";
+import { ImageUploadCard } from "@/components/templates/ImageUploadCard";
 
 interface DownloadItem {
   id: string;
@@ -132,6 +133,11 @@ export default function DownloadsPage() {
     <div>
       <h1 className="mb-2 text-2xl font-bold text-gray-900">My Creatives</h1>
       <p className="mb-6 text-sm text-gray-500">View your generated images and download history.</p>
+
+      {/* Custom upload CTA */}
+      <div className="mb-6 overflow-hidden rounded-xl border border-dashed border-primary-200 bg-gradient-to-r from-primary-50/50 to-purple-50/50 p-0">
+        <ImageUploadCard contentType="EVENT" variant="horizontal" />
+      </div>
 
       {/* Tabs */}
       <div className="mb-8 inline-flex rounded-xl bg-gray-100/80 p-1 ring-1 ring-gray-200/50">

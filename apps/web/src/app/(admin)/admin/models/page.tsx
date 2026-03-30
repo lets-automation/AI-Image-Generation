@@ -72,8 +72,9 @@ const KNOWN_PROVIDERS: Record<string, {
   ideogram: {
     label: "Ideogram",
     models: [
+      { id: "V_3", label: "V3 (latest, best text rendering)" },
       { id: "V_2_TURBO", label: "V2 Turbo (fast, good text)" },
-      { id: "V_2", label: "V2 (best text rendering)" },
+      { id: "V_2", label: "V2 (balanced)" },
       { id: "V_2A_TURBO", label: "V2A Turbo (fast, artistic)" },
       { id: "V_2A", label: "V2A (artistic, detailed)" },
     ],
@@ -159,6 +160,7 @@ export default function AdminModelsPage() {
   const [qualityTier, setQualityTier] = useState<"BASIC" | "STANDARD" | "PREMIUM">("STANDARD");
   const [providerName, setProviderName] = useState("");
   const [modelId, setModelId] = useState("");
+  const [customModelId, setCustomModelId] = useState(""); // separate state for custom model input
   const [creditCost, setCreditCost] = useState(5);
   const [priority, setPriority] = useState(0);
   const [modelConfig, setModelConfig] = useState<ModelConfig>({
@@ -233,6 +235,7 @@ export default function AdminModelsPage() {
     setQualityTier("STANDARD");
     setProviderName("");
     setModelId("");
+    setCustomModelId("");
     setCreditCost(5);
     setPriority(0);
     setModelConfig({
@@ -258,7 +261,9 @@ export default function AdminModelsPage() {
       toast.error("Provider name is required");
       return;
     }
-    if (!modelId.trim()) {
+    // Resolve the effective model ID — custom input takes over when "_custom_model" is selected
+    const effectiveModelId = modelId === "_custom_model" ? customModelId : modelId;
+    if (!effectiveModelId.trim()) {
       toast.error("Model ID is required");
       return;
     }
@@ -273,7 +278,7 @@ export default function AdminModelsPage() {
         await adminApi.createModelPricing({
           qualityTier,
           providerName: providerName.toLowerCase(),
-          modelId,
+          modelId: effectiveModelId,
           creditCost,
           priority,
           config,
@@ -657,7 +662,9 @@ export default function AdminModelsPage() {
               <Input
                 className="mt-2"
                 placeholder="Enter model ID..."
-                onChange={(e) => setModelId(e.target.value)}
+                value={customModelId}
+                onChange={(e) => setCustomModelId(e.target.value)}
+                autoFocus
               />
             )}
           </FormField>

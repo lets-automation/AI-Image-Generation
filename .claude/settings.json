@@ -51,7 +51,9 @@
       "Bash(find 'e:/VS Code/EP-Product/apps/api/prisma' -type f \\\\\\(-name *seed* -o -name *migration* \\\\\\))",
       "Bash(find 'e:/VS Code/EP-Product/packages/shared/src' -type f -name *.ts)",
       "Bash(grep -ri \"limited.*time\\\\|offer\\\\|discount\\\\|sale\\\\|exclusive\\\\|special\\\\|promotion\" 'e:/VS Code/EP-Product/apps/api/src/engine' --include=*.ts)",
-      "Bash(grep -r \"inject\\\\|append\\\\|prepend\\\\|add.*prompt\\\\|add.*text\" 'e:/VS Code/EP-Product/apps/api/src' --include=*.ts)"
+      "Bash(grep -r \"inject\\\\|append\\\\|prepend\\\\|add.*prompt\\\\|add.*text\" 'e:/VS Code/EP-Product/apps/api/src' --include=*.ts)",
+      "Read(//e//**)",
+      "Bash(xargs grep:*)"
     ],
     "additionalDirectories": [
       "e:\\VS Code\\EP-Product\\apps\\api\\src\\engine\\providers"

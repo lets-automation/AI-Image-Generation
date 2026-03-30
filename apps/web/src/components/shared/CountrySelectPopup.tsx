@@ -72,20 +72,23 @@ export function CountrySelectPopup() {
     setIsSaving(true);
     try {
       const normalizedCountry = selectedCountry.toUpperCase();
-      const response = await apiClient.patch<{ data: { country: string | null } }>("/users/me", {
-        country: normalizedCountry,
-      });
-      const savedCountry = response.data?.data?.country ?? normalizedCountry;
-      const meResponse = await apiClient.get<{ data: { country: string | null } }>("/auth/me");
-      const persistedCountry = meResponse.data?.data?.country ?? savedCountry;
-      if (!persistedCountry) {
-        toast.error("Country update was not persisted. Please try again.");
+      const response = await apiClient.patch<{ success: boolean; data: { country: string | null } }>(
+        "/users/me",
+        { country: normalizedCountry }
+      );
+      const savedCountry = response.data?.data?.country;
+      if (!savedCountry) {
+        // DB returned null — the update did not persist
+        toast.error("Country could not be saved. Please try again.");
         return;
       }
-      updateUser({ country: persistedCountry });
+      updateUser({ country: savedCountry });
       toast.success("Country saved!");
     } catch (error: any) {
-      const message = error?.response?.data?.error?.message || "Failed to save country. Please try again.";
+      const message =
+        error?.response?.data?.error?.message ||
+        error?.response?.data?.message ||
+        "Failed to save country. Please try again.";
       toast.error(message);
     } finally {
       setIsSaving(false);
