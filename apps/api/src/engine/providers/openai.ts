@@ -215,7 +215,7 @@ export class OpenAIProvider extends BaseProvider {
         quality,
         size,
         n: 1,
-        response_format: "b64_json",
+        output_format: "png",
       }),
       signal: input.signal,
     });
