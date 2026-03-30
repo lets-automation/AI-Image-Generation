@@ -104,14 +104,15 @@ export async function renderEnhanced(
     const resolved = await getProviderForTier(qualityTier as QualityTier);
 
     // Build provider-specific prompt:
-    // - Ideogram cannot handle structured prompts with section headers/rule blocks —
-    //   it renders them as visual content (produces billboards with "Critical Rules" text).
+    // - Ideogram/Gemini cannot handle structured prompts with section headers/rule blocks —
+    //   they render them as visual content or get confused by rigid formatting.
     //   Use a concise natural-language prompt instead.
     // - OpenAI handles the full structured prompt correctly.
     const promptInput = { userPrompt: prompt, fields, language, templateDescription, hasLogo };
-    const aiPrompt = resolved.provider.name === "ideogram"
-      ? buildIdeogramPrompt(promptInput)
-      : buildGenerationPrompt(promptInput);
+    const useStructuredPrompt = resolved.provider.name === "openai";
+    const aiPrompt = useStructuredPrompt
+      ? buildGenerationPrompt(promptInput)
+      : buildIdeogramPrompt(promptInput);
 
     logger.info(
       { provider: resolved.provider.name, modelId: resolved.modelId, tier: qualityTier, promptLength: aiPrompt.length },
