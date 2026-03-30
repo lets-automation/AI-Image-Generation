@@ -29,6 +29,7 @@ const envSchema = z.object({
   // AI Providers
   OPENAI_API_KEY: z.string().default(""),
   IDEOGRAM_API_KEY: z.string().default(""),
+  GEMINI_API_KEY: z.string().default(""),
 
   // Worker
   WORKER_CONCURRENCY: z.coerce.number().default(3),

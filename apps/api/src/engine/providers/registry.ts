@@ -3,6 +3,7 @@ import { logger } from "../../utils/logger.js";
 import type { BaseProvider } from "./base.js";
 import { openaiProvider } from "./openai.js";
 import { ideogramProvider } from "./ideogram.js";
+import { geminiProvider } from "./gemini.js";
 import { CircuitBreaker } from "../../resilience/circuit-breaker.js";
 import type { QualityTier } from "@ep/shared";
 
@@ -13,7 +14,8 @@ import type { QualityTier } from "@ep/shared";
  * Integrates circuit breakers to skip unhealthy providers.
  * Falls back through the priority chain when a provider is down.
  *
- * Currently only OpenAI is registered. To add a new provider:
+ * Registered providers: OpenAI, Ideogram, Google Gemini.
+ * To add a new provider:
  * 1. Create a class extending BaseProvider in this directory
  * 2. Register it in the PROVIDERS map below
  * 3. Add the API key to .env and config/index.ts
@@ -25,6 +27,7 @@ import type { QualityTier } from "@ep/shared";
 const PROVIDERS: Record<string, BaseProvider> = {
   openai: openaiProvider,
   ideogram: ideogramProvider,
+  gemini: geminiProvider,
 };
 
 // Circuit breakers per provider (lazy-initialized)

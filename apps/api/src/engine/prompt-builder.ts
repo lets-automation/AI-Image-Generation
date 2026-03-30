@@ -78,26 +78,33 @@ export function buildGenerationPrompt(input: PromptBuilderInput): string {
   const sections: string[] = [];
 
   // ─── Section 1: Design Instructions ─────────────────────
+  const totalTextElements = textFields.length;
   sections.push(
+    `ABSOLUTE RULE #1 — ZERO INVENTED CONTENT:\n` +
+    `The output image must contain EXACTLY ${totalTextElements} text element${totalTextElements === 1 ? "" : "s"} and ABSOLUTELY NOTHING ELSE.\n` +
+    `Do NOT invent, infer, imagine, or add ANY text, number, label, slogan, date, name, price, address, or symbol that is not EXPLICITLY listed in the TEXT CONTENT section below.\n` +
+    `If you add even ONE word that is not listed below, the generation has FAILED.\n\n` +
     `You are designing a professional poster/creative.\n\n` +
-    `CRITICAL RULES:\n` +
-    `1. Use the provided reference image ONLY as a style guide — match its artistic theme, lighting, colors, and composition.\n` +
-    `2. You MUST include ALL text elements listed below. Do NOT skip any text element.\n` +
+    `RULES (in priority order):\n` +
+    `1. ONLY include the EXACT ${totalTextElements} text element${totalTextElements === 1 ? "" : "s"} listed below — ZERO additional text of any kind.\n` +
+    `2. Use the provided reference image ONLY as a style guide — match its artistic theme, lighting, colors, and composition.\n` +
     `3. Place each text element in the EXACT position specified. Positions are non-negotiable.\n` +
     `4. The final image must look like a professionally designed poster with text naturally integrated into the scene (on banners, signs, boards, walls, or decorative elements — NOT flat overlay text).\n` +
-    `5. Every single digit of phone numbers must be rendered correctly — this is the #1 priority.\n` +
-    `6. Do NOT invent, infer, or add ANY extra text, numbers, dates, offers, names, logos, slogans, or watermarks that are not explicitly provided below.\n` +
-    `7. If a value is empty or not provided, leave it out. Do NOT fill missing content on your own.\n\n` +
-    `FORBIDDEN ELEMENTS — NEVER add any of these regardless of visual context or style:\n` +
-    `× Any text NOT listed in the TEXT CONTENT section below\n` +
-    `× Marketing banners or labels: "NEW ARRIVAL", "SALE", "OFFER", "DISCOUNT", "BUY NOW", "CALL NOW", "HURRY", "LIMITED TIME", "SPECIAL OFFER", "HOT DEAL", "FLASH SALE"\n` +
-    `× Phone numbers, emails, or URLs NOT explicitly listed below\n` +
-    `× Prices, percentages, or numerical values not explicitly provided\n` +
-    `× Decorative text ribbons, sale stickers, badge overlays, or promotional callouts\n` +
-    `× Watermarks, copyright notices, or attribution text\n` +
-    `× Placeholder text, dummy content, or template filler text\n` +
-    `× Social media handles, hashtags, or icons not provided\n` +
-    `The ONLY text allowed in the output is what is listed word-for-word in the TEXT CONTENT section. Nothing else.`
+    `5. Every single digit of phone numbers must be rendered correctly.\n` +
+    `6. If a value is empty or not provided, leave it out. Do NOT fill missing content on your own.\n\n` +
+    `FORBIDDEN ELEMENTS — NEVER add any of these regardless of visual context, style, or what the reference image suggests:\n` +
+    `× Any text NOT listed word-for-word in the TEXT CONTENT section below\n` +
+    `× Marketing banners or labels: "NEW ARRIVAL", "SALE", "OFFER", "DISCOUNT", "BUY NOW", "CALL NOW", "HURRY", "LIMITED TIME", "SPECIAL OFFER", "HOT DEAL", "FLASH SALE", "BEST SELLER", "TRENDING", "FREE", "SAVE", "SHOP NOW", "ORDER NOW"\n` +
+    `× Promotional phrases: "Visit Us", "Contact Us", "Follow Us", "Join Now", "Subscribe", "Book Now", "Learn More", "Get Started", "Try Now"\n` +
+    `× Invented contact info: phone numbers, emails, websites, addresses, street names, city names, ZIP codes NOT listed below\n` +
+    `× Invented business info: store hours, opening times, "Open 24/7", "Mon-Sat", directions, maps\n` +
+    `× Prices, percentages, numerical values, dates, or quantities not explicitly provided\n` +
+    `× Decorative text ribbons, sale stickers, badge overlays, promotional callouts, or star ratings\n` +
+    `× Watermarks, copyright notices, attribution text, or photographer credits\n` +
+    `× Placeholder text, dummy content, "Lorem ipsum", or template filler text\n` +
+    `× Social media handles, hashtags, QR codes, or platform icons not provided\n` +
+    `× ANY text that appears in the reference image — the reference is for STYLE only, not content\n` +
+    `The ONLY text allowed in the output is what is listed word-for-word in the TEXT CONTENT section. NOTHING else. Count the text elements: there must be EXACTLY ${totalTextElements}.`
   );
 
   // Template description (if available)
@@ -323,7 +330,10 @@ export function buildGenerationPrompt(input: PromptBuilderInput): string {
     checklist.push(`□ No invented phone numbers, prices, dates, or contact details`);
     checklist.push(`□ No marketing labels ("NEW ARRIVAL", "SALE", "OFFER", "CALL NOW", "VISIT US", "SHOP NOW", etc.)`);
     checklist.push(`□ No extra/random text added — ZERO text beyond the ${textFields.length} element${textFields.length === 1 ? "" : "s"} listed above`);
+    checklist.push(`□ No text copied from the reference image — reference is for STYLE only`);
     checklist.push(`□ No duplicate logos`);
+
+    checklist.push(`\n⛔ ABSOLUTE ZERO — if the output contains even ONE word, number, label, or symbol not explicitly listed in the ${textFields.length} text element${textFields.length === 1 ? "" : "s"} above, the generation has FAILED. Remove ALL extra text before finalizing.`);
 
     sections.push(checklist.join("\n"));
   }

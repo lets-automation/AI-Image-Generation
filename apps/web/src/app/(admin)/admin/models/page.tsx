@@ -67,7 +67,7 @@ const KNOWN_PROVIDERS: Record<string, {
       { id: "gpt-image-1.5", label: "GPT Image 1.5 (if enabled on your account)" },
     ],
     docs: "https://platform.openai.com/docs/guides/images",
-    configHints: "Config fields: quality (low/medium/high). Template image is used as style reference via /images/edits.",
+    configHints: "Config fields: quality (low/medium/high). Template image is used as style reference via /images/generations.",
   },
   ideogram: {
     label: "Ideogram",
@@ -80,6 +80,16 @@ const KNOWN_PROVIDERS: Record<string, {
     ],
     docs: "https://developer.ideogram.ai/api-reference",
     configHints: "Config fields: style_type (DESIGN/GENERAL/REALISTIC), image_weight (0-100, recommended: BASIC 58, STANDARD 64, PREMIUM 70). magic_prompt is OFF to preserve structured prompts.",
+  },
+  gemini: {
+    label: "Google Gemini",
+    models: [
+      { id: "gemini-2.5-flash-image", label: "Gemini 2.5 Flash (fast, efficient)" },
+      { id: "gemini-3.1-flash-image-preview", label: "Gemini 3.1 Flash (best speed+quality)" },
+      { id: "gemini-3-pro-image-preview", label: "Gemini 3 Pro (highest quality)" },
+    ],
+    docs: "https://ai.google.dev/gemini-api/docs/image-generation",
+    configHints: "Config fields: costCents (provider cost). Uses generateContent with responseModalities: IMAGE. Supports reference images natively via multimodal input.",
   },
 };
 
@@ -123,6 +133,11 @@ function structuredToConfig(cfg: ModelConfig, provider: string): Record<string, 
     return {
       style_type: cfg.style_type,
       image_weight: cfg.image_weight,
+      costCents,
+    };
+  }
+  if (provider === "gemini") {
+    return {
       costCents,
     };
   }
@@ -560,11 +575,12 @@ export default function AdminModelsPage() {
           <div className="mt-3 rounded bg-muted/50 p-3">
             <p className="font-medium text-foreground mb-1">Available providers:</p>
             <ul className="list-inside list-disc space-y-0.5">
-              <li><strong>OpenAI</strong> — Best overall quality. Uses /images/edits with template as style reference.</li>
+              <li><strong>OpenAI</strong> — Best overall quality. Uses /images/generations with template as style reference.</li>
               <li><strong>Ideogram</strong> — Best text rendering accuracy. Uses /remix with template as style reference. Ideal for phone numbers and multi-language text.</li>
+              <li><strong>Google Gemini</strong> — Fast and efficient. Uses generateContent with image modality. Good balance of speed, quality, and cost.</li>
             </ul>
             <p className="font-medium text-foreground mb-1 mt-2">Multi-provider fallback:</p>
-            <p>Add both OpenAI and Ideogram entries for the same tier with different priorities. If one provider fails (circuit breaker), the system auto-routes to the next one.</p>
+            <p>Add multiple provider entries for the same tier with different priorities. If one provider fails (circuit breaker), the system auto-routes to the next one.</p>
           </div>
         </CardContent>
       </Card>
@@ -744,6 +760,32 @@ export default function AdminModelsPage() {
                 />
                 <p className="text-[10px] text-muted-foreground mt-0.5">
                   = {(modelConfig.costUsd * 100).toFixed(2)}¢ per generation
+                </p>
+              </div>
+            </div>
+          ) : providerName === "gemini" ? (
+            /* Gemini config — cost only (quality/size handled via responseModalities) */
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <Label className="text-xs">
+                  Provider Cost (USD)
+                  <HelpTip text="Estimated cost per generation in USD. e.g. 0.005 = $0.005 per image. Used by the cost guard to track daily AI spend." />
+                </Label>
+                <Input
+                  type="number"
+                  min={0}
+                  step={0.001}
+                  value={modelConfig.costUsd}
+                  onChange={(e) => setModelConfig({ ...modelConfig, costUsd: +e.target.value })}
+                  className="mt-1"
+                />
+                <p className="text-[10px] text-muted-foreground mt-0.5">
+                  = {(modelConfig.costUsd * 100).toFixed(2)}¢ per generation
+                </p>
+              </div>
+              <div className="col-span-2 flex items-center">
+                <p className="text-xs text-muted-foreground">
+                  Gemini handles quality and resolution automatically. No additional config needed.
                 </p>
               </div>
             </div>

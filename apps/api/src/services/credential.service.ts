@@ -19,6 +19,7 @@ import { logger } from "../utils/logger.js";
 const CREDENTIAL_ENV_MAP: Record<string, keyof typeof config> = {
   openai_api_key: "OPENAI_API_KEY",
   ideogram_api_key: "IDEOGRAM_API_KEY",
+  gemini_api_key: "GEMINI_API_KEY",
   razorpay_key_id: "RAZORPAY_KEY_ID",
   razorpay_key_secret: "RAZORPAY_KEY_SECRET",
   razorpay_webhook_secret: "RAZORPAY_WEBHOOK_SECRET",
@@ -37,6 +38,7 @@ export const CREDENTIAL_KEYS = new Set(Object.keys(CREDENTIAL_ENV_MAP));
 export const CREDENTIAL_LABELS: Record<string, { label: string; group: string }> = {
   openai_api_key: { label: "OpenAI API Key", group: "ai" },
   ideogram_api_key: { label: "Ideogram API Key", group: "ai" },
+  gemini_api_key: { label: "Google Gemini API Key", group: "ai" },
   razorpay_key_id: { label: "Razorpay Key ID", group: "razorpay" },
   razorpay_key_secret: { label: "Razorpay Key Secret", group: "razorpay" },
   razorpay_webhook_secret: { label: "Razorpay Webhook Secret", group: "razorpay" },
