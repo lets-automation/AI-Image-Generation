@@ -77,8 +77,12 @@ export async function getProviderForTier(
       continue;
     }
 
-    if (!provider.isConfigured()) {
-      logger.debug({ providerName: entry.providerName }, "Provider not configured, skipping");
+    // Check if the provider has an API key — either in .env OR set via admin UI (DB).
+    // We can't rely on the sync isConfigured() alone because it only checks .env.
+    // The DB credential check is async, so we do it here in the registry.
+    const hasKey = provider.isConfigured() || await isProviderKeyInDB(entry.providerName);
+    if (!hasKey) {
+      logger.debug({ providerName: entry.providerName }, "Provider not configured (no API key in env or DB), skipping");
       continue;
     }
 
@@ -105,6 +109,26 @@ export async function getProviderForTier(
   );
 }
 
+/** Map provider names to their credential keys in the DB */
+const PROVIDER_CREDENTIAL_KEYS: Record<string, string> = {
+  openai: "openai_api_key",
+  ideogram: "ideogram_api_key",
+  gemini: "gemini_api_key",
+};
+
+/** Check if a provider has an API key stored in the DB */
+async function isProviderKeyInDB(providerName: string): Promise<boolean> {
+  const credKey = PROVIDER_CREDENTIAL_KEYS[providerName];
+  if (!credKey) return false;
+  try {
+    const { credentialService } = await import("../../services/credential.service.js");
+    const value = await credentialService.getCredential(credKey);
+    return !!value;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Get all provider health statuses for admin dashboard.
  */
@@ -123,7 +147,9 @@ export async function getAllProviderHealth(): Promise<
     const cb = getCircuitBreaker(name);
     let health = null;
 
-    if (provider.isConfigured()) {
+    const configured = provider.isConfigured() || await isProviderKeyInDB(name);
+
+    if (configured) {
       try {
         health = await provider.healthCheck();
       } catch {
@@ -134,7 +160,7 @@ export async function getAllProviderHealth(): Promise<
     results.push({
       name,
       displayName: provider.displayName,
-      configured: provider.isConfigured(),
+      configured,
       circuitState: cb.getState(),
       health,
     });
