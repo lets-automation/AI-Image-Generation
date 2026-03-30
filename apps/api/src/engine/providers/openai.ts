@@ -60,12 +60,12 @@ export class OpenAIProvider extends BaseProvider {
       ?? "1024x1024";
 
     try {
-      // Use /images/edits when we have reference images (template and/or logo)
-      if (input.baseImageBuffer || input.logoBuffer) {
+      // /images/edits only accepts dall-e-2.
+      // gpt-image-* models must use /images/generations (supports quality param).
+      const useEdits = model === "dall-e-2" && (input.baseImageBuffer || input.logoBuffer);
+      if (useEdits) {
         return this.generateWithEdits(input, model, quality, size, apiKey);
       }
-
-      // Fallback: /images/generations (text-to-image only, no reference)
       return this.generateFromPrompt(input, model, quality, size, apiKey);
     } catch (err) {
       const message = err instanceof Error ? err.message : "";
@@ -82,10 +82,6 @@ export class OpenAIProvider extends BaseProvider {
         { configuredModel: model, fallbackModel, reason: message },
         "OpenAI model unavailable, retrying with fallback model"
       );
-
-      if (input.baseImageBuffer || input.logoBuffer) {
-        return this.generateWithEdits(input, fallbackModel, quality, size, apiKey);
-      }
 
       return this.generateFromPrompt(input, fallbackModel, quality, size, apiKey);
     }
