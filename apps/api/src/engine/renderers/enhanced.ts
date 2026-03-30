@@ -3,7 +3,7 @@ import type { Language, QualityTier } from "@ep/shared";
 import type { OverlayField, OverlayOptions } from "./overlay.js";
 import { getProviderForTier } from "../providers/registry.js";
 import { recordProviderCost } from "../../resilience/cost-guard.js";
-import { buildGenerationPrompt } from "../prompt-builder.js";
+import { buildGenerationPrompt, buildIdeogramPrompt } from "../prompt-builder.js";
 import { logger } from "../../utils/logger.js";
 
 /**
@@ -71,16 +71,7 @@ export async function renderEnhanced(
   const logoFields = fields.filter((f) => f.fieldType === "IMAGE");
   const hasLogo = logoFields.length > 0;
 
-  // Step 1: Build the structured 4-section prompt
-  const structuredPrompt = buildGenerationPrompt({
-    userPrompt: prompt,
-    fields,
-    language,
-    templateDescription,
-    hasLogo,
-  });
-
-  // Step 2: Load the clean template image (style reference — no overlay)
+  // Step 1: Load the clean template image (style reference — no overlay)
   let templateBuffer: Buffer | undefined = baseImageBuffer;
   if (!templateBuffer) {
     const response = await fetch(baseImageUrl);
@@ -90,7 +81,7 @@ export async function renderEnhanced(
     templateBuffer = Buffer.from(await response.arrayBuffer());
   }
 
-  // Step 3: Load logo image buffer (if any logo field has a URL)
+  // Step 2: Load logo image buffer (if any logo field has a URL)
   let logoBuffer: Buffer | undefined;
   for (const logoField of logoFields) {
     const logoUrl = logoField.value;
@@ -108,12 +99,22 @@ export async function renderEnhanced(
     }
   }
 
-  // Step 4: Send template + logo + structured prompt to AI provider
+  // Step 4: Send template + logo + prompt to AI provider
   try {
     const resolved = await getProviderForTier(qualityTier as QualityTier);
 
+    // Build provider-specific prompt:
+    // - Ideogram cannot handle structured prompts with section headers/rule blocks —
+    //   it renders them as visual content (produces billboards with "Critical Rules" text).
+    //   Use a concise natural-language prompt instead.
+    // - OpenAI handles the full structured prompt correctly.
+    const promptInput = { userPrompt: prompt, fields, language, templateDescription, hasLogo };
+    const aiPrompt = resolved.provider.name === "ideogram"
+      ? buildIdeogramPrompt(promptInput)
+      : buildGenerationPrompt(promptInput);
+
     logger.info(
-      { provider: resolved.provider.name, modelId: resolved.modelId, tier: qualityTier },
+      { provider: resolved.provider.name, modelId: resolved.modelId, tier: qualityTier, promptLength: aiPrompt.length },
       "Enhanced renderer: sending template + prompt to AI for poster generation"
     );
 
@@ -122,7 +123,7 @@ export async function renderEnhanced(
     }
 
     const aiResult = await resolved.provider.generate({
-      prompt: structuredPrompt,
+      prompt: aiPrompt,
       baseImageBuffer: templateBuffer,
       logoBuffer,
       width: imageWidth,

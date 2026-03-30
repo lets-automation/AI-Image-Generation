@@ -45,7 +45,13 @@
       "Bash(grep '\"\"type\"\":\"\"result\"\"' \"C:\\\\Users\\\\Admin\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\e--VS-Code-EP-Product\\\\tasks\\\\aa869ede1e752fcef.output\" \"C:\\\\Users\\\\Admin\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\e--VS-Code-EP-Product\\\\tasks\\\\ae13b3a5b2d235889.output\" \"C:\\\\Users\\\\Admin\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\e--VS-Code-EP-Product\\\\tasks\\\\ab3456c20dc8f4cd9.output\")",
       "Bash(cat \"E:/VS Code/EP-Product/apps/web/src/app/\\(admin\\)/admin/templates/page.tsx\")",
       "Bash(cat \"E:/VS Code/EP-Product/apps/web/src/app/\\(dashboard\\)/generate/page.tsx\")",
-      "Bash(cat \"E:/VS Code/EP-Product/apps/web/src/app/\\(dashboard\\)/events/page.tsx\")"
+      "Bash(cat \"E:/VS Code/EP-Product/apps/web/src/app/\\(dashboard\\)/events/page.tsx\")",
+      "Bash(find 'e:/VS Code/EP-Product' -type f \\\\\\(-name *prompt* -o -name *builder* -o -name *openai* -o -name *ideogram* -o -name *provider* -o -name *generation* -o -name *orchestrator* \\\\\\))",
+      "Bash(find 'e:/VS Code/EP-Product' -type f -name *.prisma)",
+      "Bash(find 'e:/VS Code/EP-Product/apps/api/prisma' -type f \\\\\\(-name *seed* -o -name *migration* \\\\\\))",
+      "Bash(find 'e:/VS Code/EP-Product/packages/shared/src' -type f -name *.ts)",
+      "Bash(grep -ri \"limited.*time\\\\|offer\\\\|discount\\\\|sale\\\\|exclusive\\\\|special\\\\|promotion\" 'e:/VS Code/EP-Product/apps/api/src/engine' --include=*.ts)",
+      "Bash(grep -r \"inject\\\\|append\\\\|prepend\\\\|add.*prompt\\\\|add.*text\" 'e:/VS Code/EP-Product/apps/api/src' --include=*.ts)"
     ],
     "additionalDirectories": [
       "e:\\VS Code\\EP-Product\\apps\\api\\src\\engine\\providers"

@@ -61,7 +61,7 @@ export class IdeogramProvider extends BaseProvider {
       throw new Error("Ideogram API key not configured");
     }
 
-    const model = (input.params.model as string) ?? "V_2";
+    const model = (input.params.model as string) ?? "V_3";
     const styleType = (input.params.style_type as string) ?? "DESIGN";
 
     // Use /remix when we have a reference image (template)
@@ -117,7 +117,7 @@ export class IdeogramProvider extends BaseProvider {
       style_type: styleType,
       aspect_ratio: aspectRatio,
       // Negative prompt: avoid common text rendering issues
-      negative_prompt: "blurry text, garbled text, misspelled text, gibberish text, unreadable text, random characters, overlapping text, distorted letters, wrong language text, extra watermarks, duplicate text",
+      negative_prompt: "blurry text, garbled text, misspelled text, gibberish text, unreadable text, random characters, overlapping text, distorted letters, wrong language text, extra watermarks, duplicate text, extra text, invented text, NEW ARRIVAL, SALE, OFFER, DISCOUNT, BUY NOW, CALL NOW, LIMITED TIME, SPECIAL OFFER, HOT DEAL, FLASH SALE, promotional banner, sale sticker, marketing label, invented phone number, invented price, placeholder text, dummy text, template filler",
     };
 
     // Add resolution if specified in config
@@ -198,7 +198,7 @@ export class IdeogramProvider extends BaseProvider {
         magic_prompt_option: "OFF",
         style_type: styleType,
         aspect_ratio: aspectRatio,
-        negative_prompt: "blurry text, garbled text, misspelled text, gibberish text, unreadable text, random characters, overlapping text, distorted letters, wrong language text, extra watermarks, duplicate text",
+        negative_prompt: "blurry text, garbled text, misspelled text, gibberish text, unreadable text, random characters, overlapping text, distorted letters, wrong language text, extra watermarks, duplicate text, extra text, invented text, NEW ARRIVAL, SALE, OFFER, DISCOUNT, BUY NOW, CALL NOW, LIMITED TIME, SPECIAL OFFER, HOT DEAL, FLASH SALE, promotional banner, sale sticker, marketing label, invented phone number, invented price, placeholder text, dummy text, template filler",
       },
     };
 

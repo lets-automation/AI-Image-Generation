@@ -231,11 +231,11 @@ async function main() {
       priority: 0,
       config: JSON.stringify({ model: "gpt-image-1-mini", quality: "low", size: "1024x1024", costCents: 4 }),
     },
-    // Ideogram: fallback (priority 1) — V_2_TURBO is fast + better text
+    // Ideogram: fallback (priority 1) — V_3 fast + accurate text rendering
     {
       qualityTier: "BASIC" as const,
       providerName: "ideogram",
-      modelId: "V_2_TURBO",
+      modelId: "V_3",
       creditCost: 5,
       priority: 1,
       config: JSON.stringify({ style_type: "DESIGN", image_weight: 50, costCents: 4 }),
@@ -245,11 +245,11 @@ async function main() {
     // STANDARD tier — balanced quality & detail
     // ═══════════════════════════════════════════════════════
 
-    // Ideogram: primary (priority 0) — V_2 has best text rendering
+    // Ideogram: primary (priority 0) — V_3 best text rendering
     {
       qualityTier: "STANDARD" as const,
       providerName: "ideogram",
-      modelId: "V_2",
+      modelId: "V_3",
       creditCost: 15,
       priority: 0,
       config: JSON.stringify({ style_type: "DESIGN", image_weight: 50, costCents: 8 }),
@@ -277,11 +277,11 @@ async function main() {
       priority: 0,
       config: JSON.stringify({ model: "gpt-image-1.5", quality: "high", size: "1792x1024", costCents: 17 }),
     },
-    // Ideogram: fallback (priority 1) — V_2 with high image weight for premium feel
+    // Ideogram: fallback (priority 1) — V_3 with high image weight for premium feel
     {
       qualityTier: "PREMIUM" as const,
       providerName: "ideogram",
-      modelId: "V_2",
+      modelId: "V_3",
       creditCost: 30,
       priority: 1,
       config: JSON.stringify({ style_type: "DESIGN", image_weight: 65, costCents: 8 }),

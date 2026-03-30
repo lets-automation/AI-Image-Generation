@@ -87,13 +87,24 @@ export function buildGenerationPrompt(input: PromptBuilderInput): string {
     `4. The final image must look like a professionally designed poster with text naturally integrated into the scene (on banners, signs, boards, walls, or decorative elements — NOT flat overlay text).\n` +
     `5. Every single digit of phone numbers must be rendered correctly — this is the #1 priority.\n` +
     `6. Do NOT invent, infer, or add ANY extra text, numbers, dates, offers, names, logos, slogans, or watermarks that are not explicitly provided below.\n` +
-    `7. If a value is empty or not provided, leave it out. Do NOT fill missing content on your own.`
+    `7. If a value is empty or not provided, leave it out. Do NOT fill missing content on your own.\n\n` +
+    `FORBIDDEN ELEMENTS — NEVER add any of these regardless of visual context or style:\n` +
+    `× Any text NOT listed in the TEXT CONTENT section below\n` +
+    `× Marketing banners or labels: "NEW ARRIVAL", "SALE", "OFFER", "DISCOUNT", "BUY NOW", "CALL NOW", "HURRY", "LIMITED TIME", "SPECIAL OFFER", "HOT DEAL", "FLASH SALE"\n` +
+    `× Phone numbers, emails, or URLs NOT explicitly listed below\n` +
+    `× Prices, percentages, or numerical values not explicitly provided\n` +
+    `× Decorative text ribbons, sale stickers, badge overlays, or promotional callouts\n` +
+    `× Watermarks, copyright notices, or attribution text\n` +
+    `× Placeholder text, dummy content, or template filler text\n` +
+    `× Social media handles, hashtags, or icons not provided\n` +
+    `The ONLY text allowed in the output is what is listed word-for-word in the TEXT CONTENT section. Nothing else.`
   );
 
   // Template description (if available)
   if (templateDescription) {
     sections.push(
-      `---\n\nTEMPLATE CONTEXT\n\n${templateDescription}`
+      `---\n\nTEMPLATE CONTEXT (style reference only — do NOT use this to infer or add text elements)\n\n${templateDescription}\n\n` +
+      `Note: This context describes the visual style only. Do NOT add any text, labels, or marketing elements based on this description. ALL text in the output must come from the TEXT CONTENT section above.`
     );
   }
 
@@ -305,7 +316,9 @@ export function buildGenerationPrompt(input: PromptBuilderInput): string {
     if (language !== "ENGLISH" && translatableFields.length > 0) {
       checklist.push(`□ Translatable text is in ${langInfo.name} (${langInfo.script}), NOT in English`);
     }
-    checklist.push(`□ No extra/random text added`);
+    checklist.push(`□ No extra/random text added — ZERO text beyond what is listed above`);
+    checklist.push(`□ No marketing labels ("NEW ARRIVAL", "SALE", "OFFER", "CALL NOW", etc.) — none of these were provided`);
+    checklist.push(`□ No invented phone numbers, prices, dates, or contact details`);
     checklist.push(`□ No duplicate logos`);
 
     sections.push(checklist.join("\n"));
@@ -416,8 +429,88 @@ function getFieldTypeHint(fieldType: OverlayField["fieldType"], fieldKey: string
     return "Venue/location — render clearly.";
   }
   if (keyLower.includes("offer") || keyLower.includes("discount")) {
-    return "Offer/discount — make it eye-catching.";
+    return "Offer/discount text — render the provided text clearly. Do NOT add decorative banners, stickers, ribbons, or callout badges around it.";
   }
 
   return "Render clearly to match the design theme.";
+}
+
+/**
+ * Build a concise, natural-language prompt for Ideogram.
+ *
+ * Ideogram CANNOT handle structured prompts with section headers, bullet lists,
+ * or all-caps rule blocks — it treats those as content to render visually,
+ * producing billboard-like imagery with garbled text from the prompt structure.
+ *
+ * This produces a short, flowing description that Ideogram interprets correctly.
+ * magic_prompt_option must stay OFF so Ideogram doesn't rewrite this.
+ */
+export function buildIdeogramPrompt(input: PromptBuilderInput): string {
+  const { userPrompt, fields, language, templateDescription, hasLogo } = input;
+  const langInfo = LANGUAGE_INFO[language] ?? LANGUAGE_INFO.ENGLISH;
+
+  const textFields = fields.filter((f) => f.fieldType !== "IMAGE");
+  const logoFields = fields.filter((f) => f.fieldType === "IMAGE");
+
+  const parts: string[] = [];
+
+  // Opening: style reference from template
+  if (templateDescription) {
+    parts.push(`${templateDescription}.`);
+  } else {
+    parts.push(`A professionally designed poster.`);
+  }
+
+  // Language instruction (upfront, naturally stated)
+  if (language !== "ENGLISH") {
+    parts.push(
+      `All text in the poster must be in ${langInfo.name} using ${langInfo.script} script.`
+    );
+  }
+
+  // Text elements — natural sentences, no headers or bullets
+  if (textFields.length > 0) {
+    parts.push(`The poster must show exactly the following text elements and nothing else:`);
+
+    for (const field of textFields) {
+      const posDesc = POSITION_DESCRIPTIONS[field.position] ?? "prominently";
+
+      if (isPhoneField(field)) {
+        const digits = String(field.value).replace(/\D/g, "");
+        parts.push(
+          `At the ${posDesc}, show the phone number "${field.value}" with every digit perfectly legible (${digits.split("").join(" ")}, ${digits.length} digits total).`
+        );
+      } else if (language !== "ENGLISH" && isTranslatable(field)) {
+        parts.push(
+          `At the ${posDesc}, show "${field.value}" translated into ${langInfo.name}.`
+        );
+      } else {
+        parts.push(
+          `At the ${posDesc}, show the text "${field.value}" exactly as written.`
+        );
+      }
+    }
+  }
+
+  // Logo instruction
+  if (hasLogo || logoFields.length > 0) {
+    const logoPos = logoFields[0]
+      ? (POSITION_DESCRIPTIONS[logoFields[0].position] ?? "prominently")
+      : "prominently";
+    parts.push(`Include the provided logo image at the ${logoPos}, reproduced exactly.`);
+  } else {
+    parts.push(`Do not add any logo, watermark, or brand mark.`);
+  }
+
+  // User creative direction
+  if (userPrompt.trim()) {
+    parts.push(userPrompt.trim());
+  }
+
+  // Strict content guard — brief, no block formatting
+  parts.push(
+    `Do not add any text, phone numbers, website URLs, prices, marketing slogans, "NEW ARRIVAL", "SALE", or any labels that are not listed above.`
+  );
+
+  return parts.join(" ");
 }
