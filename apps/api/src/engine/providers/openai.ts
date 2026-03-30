@@ -60,12 +60,17 @@ export class OpenAIProvider extends BaseProvider {
       ?? "1024x1024";
 
     try {
-      // /images/edits only accepts dall-e-2.
-      // gpt-image-* models must use /images/generations (supports quality param).
-      const useEdits = model === "dall-e-2" && (input.baseImageBuffer || input.logoBuffer);
-      if (useEdits) {
+      if (model === "dall-e-2" && (input.baseImageBuffer || input.logoBuffer)) {
+        // dall-e-2 supports image reference via /images/edits
         return this.generateWithEdits(input, model, quality, size, apiKey);
       }
+
+      if (input.baseImageBuffer || input.logoBuffer) {
+        // gpt-image-* with reference images → Responses API (correct img2img path)
+        return this.generateWithResponsesAPI(input, quality, size, apiKey);
+      }
+
+      // Text-to-image only (no reference images)
       return this.generateFromPrompt(input, model, quality, size, apiKey);
     } catch (err) {
       const message = err instanceof Error ? err.message : "";
@@ -187,6 +192,99 @@ export class OpenAIProvider extends BaseProvider {
       imageBuffer: finalBuffer,
       actualCostCents: costCents,
       metadata: { model, quality, size, mode: "edits" },
+    };
+  }
+
+  /**
+   * Image-to-image for gpt-image-* models via the Responses API.
+   *
+   * /images/edits only supports dall-e-2. For gpt-image-1 and newer models,
+   * image inputs (style reference, product photo) must be passed via
+   * POST /v1/responses with tools: [{ type: "image_generation" }].
+   *
+   * The vision-capable model (gpt-4o) understands the reference image,
+   * then the image_generation tool produces the final poster.
+   */
+  private async generateWithResponsesAPI(
+    input: ProviderGenerateInput,
+    quality: string,
+    size: string,
+    apiKey: string
+  ): Promise<ProviderGenerateResult> {
+    logger.info({ quality, size }, "OpenAI: generating via Responses API with image reference");
+
+    type ContentPart =
+      | { type: "input_image"; image_url: string }
+      | { type: "input_text"; text: string };
+
+    const content: ContentPart[] = [];
+
+    // Add template / product photo as primary reference
+    if (input.baseImageBuffer) {
+      let imageBuffer = input.baseImageBuffer;
+      const meta = await sharp(imageBuffer).metadata();
+      if (meta.width && meta.height && (meta.width > 2048 || meta.height > 2048)) {
+        imageBuffer = await sharp(imageBuffer)
+          .resize(2048, 2048, { fit: "inside", withoutEnlargement: true })
+          .png()
+          .toBuffer();
+      }
+      content.push({
+        type: "input_image",
+        image_url: `data:image/png;base64,${imageBuffer.toString("base64")}`,
+      });
+    }
+
+    // Add logo as secondary reference
+    if (input.logoBuffer) {
+      content.push({
+        type: "input_image",
+        image_url: `data:image/png;base64,${input.logoBuffer.toString("base64")}`,
+      });
+    }
+
+    content.push({ type: "input_text", text: input.prompt });
+
+    const response = await fetch(`${this.baseUrl}/responses`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gpt-4o",
+        input: [{ role: "user", content }],
+        tools: [{ type: "image_generation", quality, size, output_format: "png" }],
+      }),
+      signal: input.signal,
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.text().catch(() => "Unknown error");
+      throw new Error(`OpenAI Responses API error ${response.status}: ${errorBody}`);
+    }
+
+    const data = (await response.json()) as {
+      output: Array<{ type: string; result?: string }>;
+    };
+
+    const imageOutput = data.output?.find((o) => o.type === "image_generation_call");
+    if (!imageOutput?.result) {
+      throw new Error("OpenAI Responses API returned no image data");
+    }
+
+    const outputBuffer = Buffer.from(imageOutput.result, "base64");
+    const finalBuffer = await sharp(outputBuffer)
+      .resize(input.width, input.height, { fit: "cover", position: "center" })
+      .png()
+      .toBuffer();
+
+    const costCents = (input.params.costCents as number) ?? 8;
+
+    return {
+      imageBuffer: finalBuffer,
+      actualCostCents: costCents,
+      metadata: { model: "gpt-4o+image_generation", quality, size, mode: "responses_api" },
     };
   }
 

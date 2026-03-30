@@ -111,7 +111,9 @@ export function buildGenerationPrompt(input: PromptBuilderInput): string {
   // ─── Section 2: Text Content Block ──────────────────────
   if (textFields.length > 0) {
     const textContentLines: string[] = [
-      `---\n\nTEXT CONTENT — ${textFields.length} ELEMENTS (ALL REQUIRED)\n`
+      `---\n\nTEXT CONTENT — EXACTLY ${textFields.length} ELEMENT${textFields.length === 1 ? "" : "S"} (NO MORE, NO LESS)\n` +
+      `The poster must contain EXACTLY ${textFields.length} text element${textFields.length === 1 ? "" : "s"}. ` +
+      `Adding ANY additional text beyond these ${textFields.length} element${textFields.length === 1 ? "" : "s"} is strictly forbidden.\n`
     ];
 
     // Build text instructions with explicit positions
@@ -316,9 +318,11 @@ export function buildGenerationPrompt(input: PromptBuilderInput): string {
     if (language !== "ENGLISH" && translatableFields.length > 0) {
       checklist.push(`□ Translatable text is in ${langInfo.name} (${langInfo.script}), NOT in English`);
     }
-    checklist.push(`□ No extra/random text added — ZERO text beyond what is listed above`);
-    checklist.push(`□ No marketing labels ("NEW ARRIVAL", "SALE", "OFFER", "CALL NOW", etc.) — none of these were provided`);
+    checklist.push(`□ EXACTLY ${textFields.length} text element${textFields.length === 1 ? "" : "s"} visible — count them. If you see more than ${textFields.length}, remove the extras.`);
+    checklist.push(`□ No invented addresses, street names, city names, or location text`);
     checklist.push(`□ No invented phone numbers, prices, dates, or contact details`);
+    checklist.push(`□ No marketing labels ("NEW ARRIVAL", "SALE", "OFFER", "CALL NOW", "VISIT US", "SHOP NOW", etc.)`);
+    checklist.push(`□ No extra/random text added — ZERO text beyond the ${textFields.length} element${textFields.length === 1 ? "" : "s"} listed above`);
     checklist.push(`□ No duplicate logos`);
 
     sections.push(checklist.join("\n"));
