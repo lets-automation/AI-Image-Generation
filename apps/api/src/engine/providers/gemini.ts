@@ -54,7 +54,7 @@ export class GeminiProvider extends BaseProvider {
       (input.params.model as string) ??
       "gemini-2.5-flash-image";
 
-    const hasReferenceImages = !!(input.baseImageBuffer || input.logoBuffer);
+    const hasReferenceImages = !!(input.baseImageBuffer || input.logoBuffer || (input.sourceImageBuffers && input.sourceImageBuffers.length > 0));
     const mode = hasReferenceImages ? "image-to-image" : "text-to-image";
 
     logger.info(
@@ -69,8 +69,38 @@ export class GeminiProvider extends BaseProvider {
 
     const parts: ContentPart[] = [];
 
-    // Add reference images as inline data parts
-    if (input.baseImageBuffer) {
+    // When multiple source images are provided (multi-image custom upload),
+    // send each individually so the model can reason about each reference
+    // (e.g., a product photographed from different angles).
+    // Otherwise fall back to the single baseImageBuffer (template or collage).
+    if (input.sourceImageBuffers && input.sourceImageBuffers.length > 1) {
+      for (let i = 0; i < input.sourceImageBuffers.length; i++) {
+        let imageBuffer = input.sourceImageBuffers[i];
+        const meta = await sharp(imageBuffer).metadata();
+        if (
+          meta.width &&
+          meta.height &&
+          (meta.width > 4096 || meta.height > 4096)
+        ) {
+          imageBuffer = await sharp(imageBuffer)
+            .resize(4096, 4096, { fit: "inside", withoutEnlargement: true })
+            .png()
+            .toBuffer();
+        }
+        parts.push({
+          inlineData: {
+            mimeType: "image/png",
+            data: imageBuffer.toString("base64"),
+          },
+        });
+      }
+
+      logger.info(
+        { model, sourceImageCount: input.sourceImageBuffers.length },
+        "Gemini: appended individual source images as separate inlineData parts"
+      );
+    } else if (input.baseImageBuffer) {
+      // Single template/reference image (normal flow)
       let imageBuffer = input.baseImageBuffer;
       const meta = await sharp(imageBuffer).metadata();
       if (

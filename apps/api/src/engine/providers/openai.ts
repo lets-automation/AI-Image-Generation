@@ -56,7 +56,7 @@ export class OpenAIProvider extends BaseProvider {
       ?? (input.params.size as string)
       ?? "1024x1024";
 
-    const hasReferenceImages = !!(input.baseImageBuffer || input.logoBuffer);
+    const hasReferenceImages = !!(input.baseImageBuffer || input.logoBuffer || (input.sourceImageBuffers && input.sourceImageBuffers.length > 0));
 
     if (hasReferenceImages) {
       // Image-to-image: /images/edits (multipart form data)
@@ -136,8 +136,35 @@ export class OpenAIProvider extends BaseProvider {
     formData.append("size", size);
     formData.append("n", "1");
 
-    // Add template image
-    if (input.baseImageBuffer) {
+    // When multiple source images are provided (multi-image custom upload),
+    // send each individually so the model can reason about each reference
+    // (e.g., a product photographed from different angles).
+    // Otherwise fall back to the single baseImageBuffer (template or collage).
+    if (input.sourceImageBuffers && input.sourceImageBuffers.length > 1) {
+      for (let i = 0; i < input.sourceImageBuffers.length; i++) {
+        let imageBuffer = input.sourceImageBuffers[i];
+
+        const meta = await sharp(imageBuffer).metadata();
+        if (meta.width && meta.height && (meta.width > 4096 || meta.height > 4096)) {
+          imageBuffer = await sharp(imageBuffer)
+            .resize(4096, 4096, { fit: "inside", withoutEnlargement: true })
+            .png()
+            .toBuffer();
+        }
+
+        formData.append(
+          "image[]",
+          new Blob([imageBuffer], { type: "image/png" }),
+          `reference_${i + 1}.png`
+        );
+      }
+
+      logger.info(
+        { model, sourceImageCount: input.sourceImageBuffers.length },
+        "OpenAI: appended individual source images as separate image[] entries"
+      );
+    } else if (input.baseImageBuffer) {
+      // Single template/reference image (normal flow)
       let imageBuffer = input.baseImageBuffer;
 
       // Resize if too large for API limits

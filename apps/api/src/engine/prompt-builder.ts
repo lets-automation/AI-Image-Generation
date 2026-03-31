@@ -52,13 +52,19 @@ export interface PromptBuilderInput {
   templateDescription?: string;
   /** Whether a logo image is provided */
   hasLogo: boolean;
+  /**
+   * Number of individual source images from multi-image custom uploads.
+   * When > 1, prompts describe multiple reference images so the model
+   * understands each image separately (e.g., product from different angles).
+   */
+  sourceImageCount?: number;
 }
 
 /**
  * Build a structured AI prompt for poster/creative generation.
  */
 export function buildGenerationPrompt(input: PromptBuilderInput): string {
-  const { userPrompt, fields, language, templateDescription, hasLogo } = input;
+  const { userPrompt, fields, language, templateDescription, hasLogo, sourceImageCount = 0 } = input;
   const langInfo = LANGUAGE_INFO[language] ?? LANGUAGE_INFO.ENGLISH;
 
   // Separate text fields from logo fields
@@ -87,7 +93,9 @@ export function buildGenerationPrompt(input: PromptBuilderInput): string {
     `You are designing a professional poster/creative.\n\n` +
     `RULES (in priority order):\n` +
     `1. ONLY include the EXACT ${totalTextElements} text element${totalTextElements === 1 ? "" : "s"} listed below — ZERO additional text of any kind.\n` +
-    `2. Use the provided reference image ONLY as a style guide — match its artistic theme, lighting, colors, and composition.\n` +
+    (sourceImageCount > 1
+      ? `2. You are provided ${sourceImageCount} separate reference images of the same subject from different angles/perspectives. Study ALL of them to understand the subject's complete appearance — shape, color, texture, details from every angle. Use this comprehensive understanding to create an accurate depiction. These are reference images only — match their subject matter, NOT their background or layout.\n`
+      : `2. Use the provided reference image ONLY as a style guide — match its artistic theme, lighting, colors, and composition.\n`) +
     `3. Place each text element in the EXACT position specified. Positions are non-negotiable.\n` +
     `4. The final image must look like a professionally designed poster with text naturally integrated into the scene (on banners, signs, boards, walls, or decorative elements — NOT flat overlay text).\n` +
     `5. Every single digit of phone numbers must be rendered correctly.\n` +
@@ -460,7 +468,7 @@ function getFieldTypeHint(fieldType: OverlayField["fieldType"], fieldKey: string
  * magic_prompt_option must stay OFF so Ideogram doesn't rewrite this.
  */
 export function buildIdeogramPrompt(input: PromptBuilderInput): string {
-  const { userPrompt, fields, language, templateDescription, hasLogo } = input;
+  const { userPrompt, fields, language, templateDescription, hasLogo, sourceImageCount = 0 } = input;
   const langInfo = LANGUAGE_INFO[language] ?? LANGUAGE_INFO.ENGLISH;
 
   const textFields = fields.filter((f) => f.fieldType !== "IMAGE");
@@ -472,6 +480,15 @@ export function buildIdeogramPrompt(input: PromptBuilderInput): string {
   // (e.g., "place the ring on a female hand", "keep exact product design")
   if (userPrompt.trim()) {
     parts.push(userPrompt.trim());
+  }
+
+  // Multiple reference images context (for Gemini which uses this prompt and supports multi-image)
+  if (sourceImageCount > 1) {
+    parts.push(
+      `You are provided ${sourceImageCount} separate reference images showing the same subject from different angles or perspectives. ` +
+      `Study all of them to understand the subject's complete appearance — shape, color, texture, and details from every angle. ` +
+      `Use this comprehensive understanding to create an accurate and detailed depiction of the subject.`
+    );
   }
 
   // Opening: style reference from template

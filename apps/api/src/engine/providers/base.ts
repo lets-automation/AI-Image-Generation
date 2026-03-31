@@ -19,6 +19,13 @@ export interface ProviderGenerateInput {
   baseImageBuffer?: Buffer;
   /** Logo image buffer — passed as additional reference image to the AI */
   logoBuffer?: Buffer;
+  /**
+   * Individual source image buffers from multi-image custom uploads.
+   * When provided, OpenAI/Gemini send these as separate reference images
+   * instead of the single collage in baseImageBuffer.
+   * Ideogram ignores this (uses baseImageBuffer collage — API only accepts 1 image).
+   */
+  sourceImageBuffers?: Buffer[];
   width: number;
   height: number;
   /** Provider-specific parameters from ModelPricing.config (DB-driven) */

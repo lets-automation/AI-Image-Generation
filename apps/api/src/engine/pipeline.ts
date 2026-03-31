@@ -64,18 +64,19 @@ async function publishStatus(
   }
 }
 
-async function buildCombinedReferenceImage(
-  imageUrls: string[],
-  width: number,
-  height: number
-): Promise<Buffer> {
+/**
+ * Fetch source images from URLs and return individual buffers.
+ * Used by combine mode to get individual images for providers that
+ * support multiple reference images natively (OpenAI, Gemini).
+ */
+async function fetchSourceImageBuffers(imageUrls: string[]): Promise<Buffer[]> {
   const validUrls = imageUrls.map((url) => url.trim()).filter((url) => url.length > 0);
 
   if (validUrls.length === 0) {
     throw new Error("No source images provided for combine mode");
   }
 
-  const imageBuffers = await Promise.all(
+  return Promise.all(
     validUrls.map(async (url) => {
       const response = await fetch(url);
       if (!response.ok) {
@@ -84,6 +85,20 @@ async function buildCombinedReferenceImage(
       return Buffer.from(await response.arrayBuffer());
     })
   );
+}
+
+/**
+ * Build a tiled collage from pre-fetched image buffers.
+ * Used as fallback for providers that only accept a single reference image (Ideogram).
+ */
+async function buildCombinedReferenceImage(
+  imageBuffers: Buffer[],
+  width: number,
+  height: number
+): Promise<Buffer> {
+  if (imageBuffers.length === 0) {
+    throw new Error("No source images provided for combine mode");
+  }
 
   if (imageBuffers.length === 1) {
     return sharp(imageBuffers[0])
@@ -256,14 +271,26 @@ export async function executePipeline(
       logger.info({ generationId, orientation, imageWidth, imageHeight }, "Using user-selected orientation");
     }
 
+    // Track individual source image buffers for providers that support
+    // multiple reference images natively (OpenAI, Gemini).
+    let sourceImageBuffers: Buffer[] | undefined;
+
     if (!generation.templateId && combineMode && sourceImageUrls.length > 1) {
       try {
-        baseImageBuffer = await buildCombinedReferenceImage(sourceImageUrls, imageWidth, imageHeight);
+        // Fetch all source images once — reuse for both individual buffers and collage
+        sourceImageBuffers = await fetchSourceImageBuffers(sourceImageUrls);
+        // Build collage for providers that only accept a single image (Ideogram)
+        baseImageBuffer = await buildCombinedReferenceImage(sourceImageBuffers, imageWidth, imageHeight);
+        logger.info(
+          { generationId, sourceImageCount: sourceImageBuffers.length },
+          "Fetched individual source images and built collage for multi-image combine mode"
+        );
       } catch (err) {
         logger.warn(
           { generationId, err, sourceImageCount: sourceImageUrls.length },
           "Failed to build combined reference image; falling back to primary source image"
         );
+        sourceImageBuffers = undefined;
       }
     }
 
@@ -467,6 +494,7 @@ export async function executePipeline(
         const enhancedResult = await renderEnhanced({
           baseImageUrl,
           baseImageBuffer,
+          sourceImageBuffers,
           safeZones,
           fields: overlayFields,
           language: generation.language as Language,

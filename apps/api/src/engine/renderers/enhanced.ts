@@ -28,6 +28,11 @@ import { logger } from "../../utils/logger.js";
 export interface EnhancedOptions {
   baseImageUrl: string;
   baseImageBuffer?: Buffer;
+  /**
+   * Individual source image buffers from multi-image custom uploads.
+   * Passed to providers that support multiple reference images natively.
+   */
+  sourceImageBuffers?: Buffer[];
   safeZones: OverlayOptions["safeZones"];
   fields: OverlayField[];
   language: Language;
@@ -57,6 +62,7 @@ export async function renderEnhanced(
   const {
     baseImageUrl,
     baseImageBuffer,
+    sourceImageBuffers,
     fields,
     language,
     imageWidth,
@@ -108,7 +114,9 @@ export async function renderEnhanced(
     //   they render them as visual content or get confused by rigid formatting.
     //   Use a concise natural-language prompt instead.
     // - OpenAI handles the full structured prompt correctly.
-    const promptInput = { userPrompt: prompt, fields, language, templateDescription, hasLogo };
+    // Pass sourceImageCount so prompt builder can describe multiple reference images
+    const sourceImageCount = sourceImageBuffers?.length ?? 0;
+    const promptInput = { userPrompt: prompt, fields, language, templateDescription, hasLogo, sourceImageCount };
     const useStructuredPrompt = resolved.provider.name === "openai";
     const aiPrompt = useStructuredPrompt
       ? buildGenerationPrompt(promptInput)
@@ -127,6 +135,7 @@ export async function renderEnhanced(
       prompt: aiPrompt,
       baseImageBuffer: templateBuffer,
       logoBuffer,
+      sourceImageBuffers,
       width: imageWidth,
       height: imageHeight,
       params: {
