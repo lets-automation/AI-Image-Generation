@@ -70,7 +70,7 @@ export class GenerationController {
    */
   async list(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      const query = (req as Request & { validatedQuery?: Record<string, unknown> }).validatedQuery as {
+      const query = req.query as unknown as {
         page?: number;
         limit?: number;
         status?: string;
@@ -96,7 +96,7 @@ export class GenerationController {
    */
   async listPublic(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      const query = (req as Request & { validatedQuery?: Record<string, unknown> }).validatedQuery as {
+      const query = req.query as unknown as {
         page?: number;
         limit?: number;
         contentType?: string;

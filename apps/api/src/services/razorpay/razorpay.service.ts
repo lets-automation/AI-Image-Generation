@@ -1,20 +1,20 @@
 /**
- * Razorpay Service — Order Creation & Payment Verification
+ * Razorpay Service — Subscription-based Recurring Payments
  *
- * Handles Razorpay payment flow for web subscription purchases:
- * 1. Create Razorpay order for a subscription plan
+ * Handles Razorpay recurring payment flow for web subscription purchases:
+ * 1. Create Razorpay Subscription (recurring) linked to a Razorpay Plan
  * 2. Verify payment signature after checkout
  * 3. Activate subscription on successful verification
+ * 4. Handle renewal via subscription.charged webhook
+ * 5. Handle cancellation via Razorpay API
  */
 
 import Razorpay from "razorpay";
 import crypto from "crypto";
-import { config } from "../../config/index.js";
 import { credentialService } from "../credential.service.js";
 import { prisma } from "../../config/database.js";
 import { logger } from "../../utils/logger.js";
-import { BadRequestError, NotFoundError, ServiceUnavailableError } from "../../utils/errors.js";
-import { subscriptionService } from "../subscription.service.js";
+import { BadRequestError, NotFoundError, ServiceUnavailableError, ConflictError } from "../../utils/errors.js";
 
 // ─── Razorpay Instance ───────────────────────────────────
 
@@ -51,17 +51,15 @@ async function getRazorpay(): Promise<InstanceType<typeof Razorpay>> {
 
 // ─── Types ───────────────────────────────────────────────
 
-interface CreateOrderResult {
-  orderId: string;
-  amount: number;
-  currency: string;
+interface CreateSubscriptionResult {
+  subscriptionId: string;
   planId: string;
   planName: string;
   keyId: string;
 }
 
 interface VerifyPaymentInput {
-  razorpay_order_id: string;
+  razorpay_subscription_id: string;
   razorpay_payment_id: string;
   razorpay_signature: string;
 }
@@ -70,13 +68,13 @@ interface VerifyPaymentInput {
 
 export class RazorpayService {
   /**
-   * Create a Razorpay order for a subscription plan purchase.
+   * Create a Razorpay Subscription (recurring) for a subscription plan purchase.
    *
    * @param userId - The authenticated user's ID
    * @param planId - The SubscriptionPlan ID from our database
-   * @returns Order details for the Razorpay checkout on frontend
+   * @returns Subscription details for the Razorpay checkout on frontend
    */
-  async createOrder(userId: string, planId: string): Promise<CreateOrderResult> {
+  async createSubscription(userId: string, planId: string): Promise<CreateSubscriptionResult> {
     // 1. Look up the subscription plan
     const plan = await prisma.subscriptionPlan.findFirst({
       where: { id: planId, isActive: true },
@@ -84,6 +82,12 @@ export class RazorpayService {
 
     if (!plan) {
       throw new NotFoundError("Subscription plan");
+    }
+
+    if (!plan.razorpayPlanId) {
+      throw new BadRequestError(
+        "This plan does not have a Razorpay Plan configured. Please contact support."
+      );
     }
 
     // 2. Check if user already has an active subscription
@@ -96,20 +100,20 @@ export class RazorpayService {
 
     if (existingSub) {
       throw new BadRequestError(
-        "You already have an active subscription. Wait for it to expire or contact support to change plans."
+        "You already have an active subscription. Wait for it to expire or cancel it first."
       );
     }
 
-    // 3. Create Razorpay order
+    // 3. Create Razorpay Subscription (recurring)
     const razorpay = await getRazorpay();
     const keyId = await credentialService.getCredentialOrEnv("razorpay_key_id");
 
-    let order;
+    let rzpSubscription: any;
     try {
-      order = await razorpay.orders.create({
-        amount: plan.priceInr, // Already in paise
-        currency: "INR",
-        receipt: `sub_${userId.slice(-8)}_${Date.now()}`,
+      rzpSubscription = await razorpay.subscriptions.create({
+        plan_id: plan.razorpayPlanId,
+        total_count: 52,          // Up to 52 weeks (1 year) of billing cycles
+        customer_notify: 1,       // Let Razorpay handle email notifications
         notes: {
           userId,
           planId: plan.id,
@@ -121,12 +125,12 @@ export class RazorpayService {
         {
           userId,
           planId: plan.id,
-          amount: plan.priceInr,
+          razorpayPlanId: plan.razorpayPlanId,
           razorpayError: rzpError?.message || rzpError,
           statusCode: rzpError?.statusCode,
           errorDescription: rzpError?.error?.description,
         },
-        "Razorpay order creation failed"
+        "Razorpay subscription creation failed"
       );
       throw new ServiceUnavailableError(
         rzpError?.error?.description || "Payment service temporarily unavailable. Please try again."
@@ -134,14 +138,12 @@ export class RazorpayService {
     }
 
     logger.info(
-      { userId, planId: plan.id, orderId: order.id, amount: plan.priceInr },
-      "Razorpay order created"
+      { userId, planId: plan.id, rzpSubscriptionId: rzpSubscription.id },
+      "Razorpay subscription created"
     );
 
     return {
-      orderId: order.id,
-      amount: plan.priceInr,
-      currency: "INR",
+      subscriptionId: rzpSubscription.id,
       planId: plan.id,
       planName: plan.name,
       keyId,
@@ -149,7 +151,7 @@ export class RazorpayService {
   }
 
   /**
-   * Verify Razorpay payment signature and activate the subscription.
+   * Verify Razorpay subscription payment signature and activate the subscription.
    *
    * Called after user completes Razorpay checkout on frontend.
    *
@@ -162,19 +164,19 @@ export class RazorpayService {
     planId: string,
     payment: VerifyPaymentInput
   ) {
-    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = payment;
+    const { razorpay_subscription_id, razorpay_payment_id, razorpay_signature } = payment;
 
-    // 1. Verify signature
+    // 1. Verify signature (subscription verification uses subscription_id|payment_id)
     const keySecret = await credentialService.getCredentialOrEnv("razorpay_key_secret");
     const expectedSignature = crypto
       .createHmac("sha256", keySecret)
-      .update(`${razorpay_order_id}|${razorpay_payment_id}`)
+      .update(`${razorpay_payment_id}|${razorpay_subscription_id}`)
       .digest("hex");
 
     if (expectedSignature !== razorpay_signature) {
       logger.warn(
-        { userId, razorpay_order_id, razorpay_payment_id },
-        "Razorpay payment signature verification failed"
+        { userId, razorpay_subscription_id, razorpay_payment_id },
+        "Razorpay subscription payment signature verification failed"
       );
       throw new BadRequestError("Payment verification failed — invalid signature");
     }
@@ -198,12 +200,35 @@ export class RazorpayService {
         { razorpay_payment_id, subscriptionId: existingByPayment.id },
         "Razorpay payment already processed — idempotent"
       );
+      const { subscriptionService } = await import("../subscription.service.js");
       return subscriptionService.getActiveSubscription(userId);
     }
 
-    // 4. Activate subscription via the subscription service
+    // 4. Fetch subscription details from Razorpay to get actual dates
+    const razorpay = await getRazorpay();
+    let rzpSubDetails: any;
+    try {
+      rzpSubDetails = await razorpay.subscriptions.fetch(razorpay_subscription_id);
+    } catch (err: any) {
+      logger.error(
+        { err: err?.message, razorpay_subscription_id },
+        "Failed to fetch Razorpay subscription details"
+      );
+      // Fallback to 7-day period if we can't fetch
+      rzpSubDetails = null;
+    }
+
+    // 5. Activate subscription
     const now = new Date();
-    const periodEnd = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000); // 1 week
+    // Use Razorpay's current_start/current_end if available, else default to 7 days
+    const periodStart = rzpSubDetails?.current_start
+      ? new Date(rzpSubDetails.current_start * 1000)
+      : now;
+    const periodEnd = rzpSubDetails?.current_end
+      ? new Date(rzpSubDetails.current_end * 1000)
+      : new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+
+    const { config } = await import("../../config/index.js");
 
     const subscription = await prisma.$transaction(async (tx) => {
       // Close any existing expired/cancelled subscriptions' balances
@@ -221,11 +246,11 @@ export class RazorpayService {
           originalTransactionId: razorpay_payment_id,    // Use payment_id as unique identifier
           latestTransactionId: razorpay_payment_id,
           status: "ACTIVE",
-          currentPeriodStart: now,
+          currentPeriodStart: periodStart,
           currentPeriodEnd: periodEnd,
-          autoRenewEnabled: true,                        // Auto-renew by default; user can cancel
+          autoRenewEnabled: true,
           lastRenewalDate: now,
-          razorpayOrderId: razorpay_order_id,
+          razorpaySubscriptionId: razorpay_subscription_id,
           razorpayPaymentId: razorpay_payment_id,
           razorpaySignature: razorpay_signature,
           environment: config.NODE_ENV === "production" ? "Production" : "Sandbox",
@@ -237,7 +262,7 @@ export class RazorpayService {
         data: {
           userId,
           subscriptionId: sub.id,
-          periodStart: now,
+          periodStart,
           periodEnd,
           weeklyCredits: plan.weeklyCredits,
           usedCredits: 0,
@@ -255,7 +280,7 @@ export class RazorpayService {
           effectiveDate: now,
           payload: {
             provider: "RAZORPAY",
-            orderId: razorpay_order_id,
+            subscriptionId: razorpay_subscription_id,
             paymentId: razorpay_payment_id,
             planName: plan.name,
             amount: plan.priceInr,
@@ -266,7 +291,7 @@ export class RazorpayService {
       return sub;
     });
 
-    // 5. Invalidate Redis cache
+    // 6. Invalidate Redis cache
     try {
       const { getRedis } = await import("../../config/redis.js");
       const redis = getRedis();
@@ -281,25 +306,416 @@ export class RazorpayService {
         userId,
         subscriptionId: subscription.id,
         planName: plan.name,
+        razorpay_subscription_id,
         razorpay_payment_id,
       },
       "Razorpay subscription activated"
     );
 
-    // 6. Audit log
+    // 7. Audit log
     try {
       const { auditService } = await import("../audit.service.js");
       auditService.logSubscriptionAction(userId, "INITIAL_BUY", subscription.id, {
         provider: "RAZORPAY",
         planName: plan.name,
         paymentId: razorpay_payment_id,
-        orderId: razorpay_order_id,
+        subscriptionId: razorpay_subscription_id,
       });
     } catch {
       // Non-critical
     }
 
+    const { subscriptionService } = await import("../subscription.service.js");
     return subscriptionService.getActiveSubscription(userId);
+  }
+
+  /**
+   * Handle subscription.charged webhook — Razorpay auto-charged the user.
+   * This is the RENEWAL event for Razorpay subscriptions.
+   *
+   * @param razorpaySubscriptionId - Razorpay subscription ID
+   * @param paymentId - The new payment ID for this charge
+   * @param payload - Raw webhook payload
+   */
+  async handleSubscriptionCharged(
+    razorpaySubscriptionId: string,
+    paymentId: string,
+    _payload: any
+  ) {
+    // Find our subscription by Razorpay subscription ID
+    const subscription = await prisma.subscription.findFirst({
+      where: { razorpaySubscriptionId } as any,
+      include: { plan: true },
+    });
+
+    if (!subscription) {
+      logger.warn(
+        { razorpaySubscriptionId, paymentId },
+        "subscription.charged webhook — no local subscription found"
+      );
+      return;
+    }
+
+    // Skip if this is the initial payment (already handled by verify flow)
+    if (subscription.latestTransactionId === paymentId) {
+      logger.info(
+        { razorpaySubscriptionId, paymentId },
+        "subscription.charged — duplicate of initial payment, skipping"
+      );
+      return;
+    }
+
+    // Fetch updated subscription details from Razorpay for accurate dates
+    const razorpay = await getRazorpay();
+    let rzpSubDetails: any;
+    try {
+      rzpSubDetails = await razorpay.subscriptions.fetch(razorpaySubscriptionId);
+    } catch (err: any) {
+      logger.error(
+        { err: err?.message, razorpaySubscriptionId },
+        "Failed to fetch Razorpay subscription details during renewal"
+      );
+      rzpSubDetails = null;
+    }
+
+    const now = new Date();
+    const newPeriodStart = rzpSubDetails?.current_start
+      ? new Date(rzpSubDetails.current_start * 1000)
+      : subscription.currentPeriodEnd;
+    const newPeriodEnd = rzpSubDetails?.current_end
+      ? new Date(rzpSubDetails.current_end * 1000)
+      : new Date((newPeriodStart as Date).getTime() + 7 * 24 * 60 * 60 * 1000);
+
+    await prisma.$transaction(async (tx) => {
+      // Close all open balances for this subscription
+      await tx.subscriptionBalance.updateMany({
+        where: { subscriptionId: subscription.id, isClosed: false },
+        data: { isClosed: true },
+      });
+
+      // Create new balance with fresh credits
+      await tx.subscriptionBalance.create({
+        data: {
+          userId: subscription.userId,
+          subscriptionId: subscription.id,
+          periodStart: newPeriodStart,
+          periodEnd: newPeriodEnd,
+          weeklyCredits: subscription.plan.weeklyCredits,
+          remainingCredits: subscription.plan.weeklyCredits,
+          usedCredits: 0,
+          isClosed: false,
+        },
+      });
+
+      // Update subscription
+      await tx.subscription.update({
+        where: { id: subscription.id },
+        data: {
+          status: "ACTIVE",
+          currentPeriodStart: newPeriodStart,
+          currentPeriodEnd: newPeriodEnd,
+          latestTransactionId: paymentId,
+          lastRenewalDate: now,
+          autoRenewEnabled: true,
+        },
+      });
+
+      // Record renewal event
+      await tx.subscriptionEvent.create({
+        data: {
+          subscriptionId: subscription.id,
+          eventType: "RENEWAL",
+          transactionId: paymentId,
+          effectiveDate: now,
+          payload: {
+            provider: "RAZORPAY",
+            source: "webhook",
+            razorpaySubscriptionId,
+          } as any,
+        },
+      });
+    });
+
+    // Invalidate cache
+    try {
+      const { getRedis } = await import("../../config/redis.js");
+      const redis = getRedis();
+      await redis.del(`sub:status:${subscription.userId}`);
+      await redis.del(`sub:balance:${subscription.userId}`);
+    } catch {
+      // Non-critical
+    }
+
+    logger.info(
+      {
+        subscriptionId: subscription.id,
+        userId: subscription.userId,
+        paymentId,
+        newPeriodEnd,
+      },
+      "Razorpay subscription renewed (subscription.charged)"
+    );
+  }
+
+  /**
+   * Handle subscription.pending webhook — payment is pending/failed.
+   * Sets subscription to BILLING_RETRY status.
+   */
+  async handleSubscriptionPending(razorpaySubscriptionId: string) {
+    const subscription = await prisma.subscription.findFirst({
+      where: { razorpaySubscriptionId } as any,
+    });
+
+    if (!subscription) {
+      logger.warn(
+        { razorpaySubscriptionId },
+        "subscription.pending webhook — no local subscription found"
+      );
+      return;
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.subscription.update({
+        where: { id: subscription.id },
+        data: { status: "BILLING_RETRY" },
+      });
+
+      await tx.subscriptionEvent.create({
+        data: {
+          subscriptionId: subscription.id,
+          eventType: "BILLING_RETRY_START",
+          effectiveDate: new Date(),
+          payload: {
+            provider: "RAZORPAY",
+            source: "webhook",
+            razorpaySubscriptionId,
+          } as any,
+        },
+      });
+    });
+
+    // Invalidate cache
+    try {
+      const { getRedis } = await import("../../config/redis.js");
+      const redis = getRedis();
+      await redis.del(`sub:status:${subscription.userId}`);
+    } catch {
+      // Non-critical
+    }
+
+    logger.warn(
+      { subscriptionId: subscription.id, userId: subscription.userId },
+      "Razorpay subscription payment pending — billing retry"
+    );
+  }
+
+  /**
+   * Handle subscription.halted webhook — payment retries exhausted.
+   * Expires the subscription.
+   */
+  async handleSubscriptionHalted(razorpaySubscriptionId: string) {
+    const subscription = await prisma.subscription.findFirst({
+      where: { razorpaySubscriptionId } as any,
+    });
+
+    if (!subscription) {
+      logger.warn(
+        { razorpaySubscriptionId },
+        "subscription.halted webhook — no local subscription found"
+      );
+      return;
+    }
+
+    await prisma.$transaction(async (tx) => {
+      // Close all open balances
+      await tx.subscriptionBalance.updateMany({
+        where: { subscriptionId: subscription.id, isClosed: false },
+        data: { isClosed: true },
+      });
+
+      await tx.subscription.update({
+        where: { id: subscription.id },
+        data: { status: "EXPIRED" },
+      });
+
+      await tx.subscriptionEvent.create({
+        data: {
+          subscriptionId: subscription.id,
+          eventType: "EXPIRE",
+          effectiveDate: new Date(),
+          payload: {
+            provider: "RAZORPAY",
+            source: "webhook",
+            reason: "payment_retries_exhausted",
+            razorpaySubscriptionId,
+          } as any,
+        },
+      });
+    });
+
+    // Invalidate cache
+    try {
+      const { getRedis } = await import("../../config/redis.js");
+      const redis = getRedis();
+      await redis.del(`sub:status:${subscription.userId}`);
+      await redis.del(`sub:balance:${subscription.userId}`);
+    } catch {
+      // Non-critical
+    }
+
+    logger.warn(
+      { subscriptionId: subscription.id, userId: subscription.userId },
+      "Razorpay subscription halted — expired"
+    );
+  }
+
+  /**
+   * Handle subscription.cancelled webhook from Razorpay.
+   * Sets autoRenewEnabled=false, subscription remains active until period end.
+   */
+  async handleSubscriptionCancelled(razorpaySubscriptionId: string) {
+    const subscription = await prisma.subscription.findFirst({
+      where: { razorpaySubscriptionId } as any,
+    });
+
+    if (!subscription) {
+      logger.warn(
+        { razorpaySubscriptionId },
+        "subscription.cancelled webhook — no local subscription found"
+      );
+      return;
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.subscription.update({
+        where: { id: subscription.id },
+        data: {
+          autoRenewEnabled: false,
+          cancellationReason: "User cancelled via Razorpay",
+        },
+      });
+
+      await tx.subscriptionEvent.create({
+        data: {
+          subscriptionId: subscription.id,
+          eventType: "CANCEL",
+          effectiveDate: new Date(),
+          payload: {
+            provider: "RAZORPAY",
+            source: "webhook",
+            razorpaySubscriptionId,
+          } as any,
+        },
+      });
+    });
+
+    // Invalidate cache
+    try {
+      const { getRedis } = await import("../../config/redis.js");
+      const redis = getRedis();
+      await redis.del(`sub:status:${subscription.userId}`);
+    } catch {
+      // Non-critical
+    }
+
+    logger.info(
+      { subscriptionId: subscription.id, userId: subscription.userId },
+      "Razorpay subscription cancelled"
+    );
+  }
+
+  /**
+   * Cancel a Razorpay subscription via API.
+   * Uses cancel_at_cycle_end=true so user keeps access until period end.
+   *
+   * @param userId - The user requesting cancellation
+   */
+  async cancelSubscription(userId: string) {
+    const subscription = await prisma.subscription.findFirst({
+      where: {
+        userId,
+        provider: "RAZORPAY" as any,
+        status: { in: ["ACTIVE", "BILLING_RETRY", "GRACE_PERIOD"] },
+      },
+    });
+
+    if (!subscription) {
+      throw new NotFoundError("Active Razorpay subscription");
+    }
+
+    if (!subscription.autoRenewEnabled) {
+      throw new ConflictError("Subscription is already set to cancel at period end");
+    }
+
+    const razorpaySubscriptionId = (subscription as any).razorpaySubscriptionId;
+    if (!razorpaySubscriptionId) {
+      // Legacy subscription without Razorpay subscription ID — just update local DB
+      logger.warn(
+        { subscriptionId: subscription.id },
+        "No Razorpay subscription ID found — updating local DB only"
+      );
+      await prisma.subscription.update({
+        where: { id: subscription.id },
+        data: { autoRenewEnabled: false, cancellationReason: "User requested cancellation" },
+      });
+    } else {
+      // Cancel on Razorpay side (at cycle end so user keeps access)
+      const razorpay = await getRazorpay();
+      try {
+        await razorpay.subscriptions.cancel(razorpaySubscriptionId, { cancel_at_cycle_end: true } as any);
+        logger.info(
+          { razorpaySubscriptionId, subscriptionId: subscription.id },
+          "Razorpay subscription cancelled at cycle end"
+        );
+      } catch (err: any) {
+        logger.error(
+          { err: err?.message, razorpaySubscriptionId },
+          "Failed to cancel Razorpay subscription via API"
+        );
+        throw new ServiceUnavailableError(
+          "Failed to cancel subscription. Please try again or contact support."
+        );
+      }
+
+      await prisma.subscription.update({
+        where: { id: subscription.id },
+        data: {
+          autoRenewEnabled: false,
+          cancellationReason: "User requested cancellation",
+        },
+      });
+    }
+
+    // Invalidate cache
+    try {
+      const { getRedis } = await import("../../config/redis.js");
+      const redis = getRedis();
+      await redis.del(`sub:status:${userId}`);
+    } catch {
+      // Non-critical
+    }
+
+    logger.info({ userId, subscriptionId: subscription.id }, "Razorpay subscription auto-renewal cancelled");
+  }
+
+  /**
+   * Fetch Razorpay subscription status for reconciliation.
+   */
+  async getSubscriptionStatus(razorpaySubscriptionId: string): Promise<{
+    status: string;
+    currentStart: Date | null;
+    currentEnd: Date | null;
+    endedAt: Date | null;
+  }> {
+    const razorpay = await getRazorpay();
+    const rzpSub = await razorpay.subscriptions.fetch(razorpaySubscriptionId);
+
+    return {
+      status: rzpSub.status,
+      currentStart: rzpSub.current_start ? new Date(rzpSub.current_start * 1000) : null,
+      currentEnd: rzpSub.current_end ? new Date(rzpSub.current_end * 1000) : null,
+      endedAt: rzpSub.ended_at ? new Date(rzpSub.ended_at * 1000) : null,
+    };
   }
 
   /**

@@ -366,6 +366,7 @@ model Subscription {
   razorpayOrderId         String?                           // Razorpay order_id
   razorpayPaymentId       String?                           // Razorpay payment_id
   razorpaySignature       String?                           // Razorpay payment signature
+  razorpaySubscriptionId  String?               @unique     // Razorpay subscription_id (for recurring)
   environment             String              @default("Production") // "Sandbox" | "Production"
   createdAt               DateTime            @default(now())
   updatedAt               DateTime            @updatedAt

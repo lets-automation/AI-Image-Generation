@@ -195,7 +195,7 @@ export function ImageUploadCard({ contentType, variant = "vertical" }: ImageUplo
     const mainPreview = previews[0];
 
     return (
-      <Card className="flex h-full flex-col overflow-hidden border-2 border-primary/40 bg-primary/5">
+      <Card className="flex flex-col overflow-hidden border-2 border-primary/40 bg-primary/5">
         <div className="p-3">
           <div className="mb-2 flex items-center justify-between">
             <p className="text-sm font-medium">
@@ -211,7 +211,7 @@ export function ImageUploadCard({ contentType, variant = "vertical" }: ImageUplo
           </div>
 
           {/* Thumbnail grid */}
-          <div className={`grid gap-2 ${previews.length === 1 ? "grid-cols-1" : "grid-cols-2"}`}>
+          <div className={`grid gap-2 ${previews.length === 1 ? "grid-cols-1 max-w-[200px]" : previews.length <= 4 ? "grid-cols-2" : "grid-cols-3"}`}>
             {previews.map((preview, index) => (
               <div key={`preview-${index}`} className="group relative overflow-hidden rounded-lg border bg-muted">
                 <div className="relative aspect-square">

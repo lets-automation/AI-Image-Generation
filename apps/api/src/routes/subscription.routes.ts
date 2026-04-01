@@ -36,9 +36,9 @@ router.post("/cancel", (req, res, next) =>
 
 // Razorpay (Web)
 
-// POST /api/v1/subscriptions/razorpay/create-order — Create Razorpay order
-router.post("/razorpay/create-order", (req, res, next) =>
-  razorpayController.createOrder(req, res, next)
+// POST /api/v1/subscriptions/razorpay/create-subscription — Create Razorpay Subscription (recurring)
+router.post("/razorpay/create-subscription", (req, res, next) =>
+  razorpayController.createSubscription(req, res, next)
 );
 
 // POST /api/v1/subscriptions/razorpay/verify — Verify Razorpay payment & activate

@@ -46,7 +46,7 @@ export default function SubscriptionPage() {
     error,
     fetchStatus,
     fetchPlans,
-    createRazorpayOrder,
+    createRazorpaySubscription,
     verifyRazorpayPayment,
     cancelSubscription,
   } = useSubscriptionStore();
@@ -71,30 +71,28 @@ export default function SubscriptionPage() {
       setPurchasingPlanId(planId);
 
       try {
-        // 1. Create Razorpay order via our backend
-        const order = await createRazorpayOrder(planId);
+        // 1. Create Razorpay Subscription (recurring) via our backend
+        const result = await createRazorpaySubscription(planId);
 
-        // 2. Open Razorpay checkout
+        // 2. Open Razorpay checkout with subscription_id
         const options = {
-          key: order.keyId,
-          amount: order.amount,
-          currency: order.currency,
+          key: result.keyId,
+          subscription_id: result.subscriptionId,
           name: "EP-Product",
-          description: `${order.planName} - Weekly Subscription`,
-          order_id: order.orderId,
+          description: `${result.planName} - Weekly Subscription`,
           handler: async (response: {
-            razorpay_order_id: string;
+            razorpay_subscription_id: string;
             razorpay_payment_id: string;
             razorpay_signature: string;
           }) => {
             // 3. Verify payment on backend
             try {
               await verifyRazorpayPayment(planId, {
-                razorpay_order_id: response.razorpay_order_id,
+                razorpay_subscription_id: response.razorpay_subscription_id,
                 razorpay_payment_id: response.razorpay_payment_id,
                 razorpay_signature: response.razorpay_signature,
               });
-              toast.success("Subscription activated! 🎉");
+              toast.success("Subscription activated! 🎉 Auto-renewal is enabled.");
               fetchStatus(); // Refresh status
             } catch (verifyErr) {
               const msg =
@@ -127,7 +125,7 @@ export default function SubscriptionPage() {
         setPurchasingPlanId(null);
       }
     },
-    [razorpayLoaded, createRazorpayOrder, verifyRazorpayPayment, fetchStatus]
+    [razorpayLoaded, createRazorpaySubscription, verifyRazorpayPayment, fetchStatus]
   );
 
   if (isLoading && !status) {
@@ -145,6 +143,8 @@ export default function SubscriptionPage() {
   const sub = status?.subscription;
   const balance = status?.balance;
   const hasActive = status?.hasActiveSubscription;
+  const isApple = sub?.provider === "APPLE";
+  const isRazorpay = sub?.provider === "RAZORPAY";
 
   return (
     <>
@@ -220,7 +220,7 @@ export default function SubscriptionPage() {
               </div>
             </div>
 
-            {/* Auto-renew status + Cancel */}
+            {/* Auto-renew status + Cancel / Manage */}
             <div className="mt-4 flex items-center justify-between">
               <div className="text-sm">
                 {sub.autoRenewEnabled ? (
@@ -232,44 +232,68 @@ export default function SubscriptionPage() {
                   </p>
                 )}
               </div>
+
+              {/* Provider-specific actions */}
               {sub.autoRenewEnabled && (
                 <div>
-                  {!showCancelConfirm ? (
-                    <button
-                      onClick={() => setShowCancelConfirm(true)}
-                      className="text-sm font-medium text-red-600 hover:text-red-700 hover:underline"
-                    >
-                      Cancel subscription
-                    </button>
-                  ) : (
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-gray-500">Are you sure?</span>
-                      <button
-                        onClick={async () => {
-                          setCancelling(true);
-                          try {
-                            await cancelSubscription();
-                            toast.success("Subscription cancelled. You can use credits until the period ends.");
-                          } catch {
-                            toast.error("Failed to cancel subscription");
-                          } finally {
-                            setCancelling(false);
-                            setShowCancelConfirm(false);
-                          }
-                        }}
-                        disabled={cancelling}
-                        className="rounded bg-red-600 px-3 py-1 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50"
+                  {isApple ? (
+                    /* Apple: Show "Manage in Apple Settings" instead of cancel */
+                    <div className="flex flex-col items-end gap-1.5">
+                      <a
+                        href="https://apps.apple.com/account/subscriptions"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-gray-100 px-3 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-200"
                       >
-                        {cancelling ? "Cancelling..." : "Yes, cancel"}
-                      </button>
-                      <button
-                        onClick={() => setShowCancelConfirm(false)}
-                        className="rounded bg-gray-100 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-200"
-                      >
-                        No, keep
-                      </button>
+                        <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
+                        </svg>
+                        Manage in Apple Settings
+                      </a>
+                      <span className="text-xs text-gray-400">
+                        Cancel via Settings → Apple ID → Subscriptions
+                      </span>
                     </div>
-                  )}
+                  ) : isRazorpay ? (
+                    /* Razorpay: Show cancel button (calls Razorpay API) */
+                    !showCancelConfirm ? (
+                      <button
+                        onClick={() => setShowCancelConfirm(true)}
+                        className="text-sm font-medium text-red-600 hover:text-red-700 hover:underline"
+                      >
+                        Cancel subscription
+                      </button>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-gray-500">Are you sure?</span>
+                        <button
+                          onClick={async () => {
+                            setCancelling(true);
+                            try {
+                              await cancelSubscription();
+                              toast.success("Subscription cancelled. You can use credits until the period ends.");
+                            } catch (cancelErr) {
+                              const msg = cancelErr instanceof Error ? cancelErr.message : "Failed to cancel subscription";
+                              toast.error(msg);
+                            } finally {
+                              setCancelling(false);
+                              setShowCancelConfirm(false);
+                            }
+                          }}
+                          disabled={cancelling}
+                          className="rounded bg-red-600 px-3 py-1 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50"
+                        >
+                          {cancelling ? "Cancelling..." : "Yes, cancel"}
+                        </button>
+                        <button
+                          onClick={() => setShowCancelConfirm(false)}
+                          className="rounded bg-gray-100 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-200"
+                        >
+                          No, keep
+                        </button>
+                      </div>
+                    )
+                  ) : null}
                 </div>
               )}
             </div>

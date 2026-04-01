@@ -41,10 +41,8 @@ interface SubscriptionStatus {
   balance: BalanceInfo | null;
 }
 
-interface RazorpayOrderResult {
-  orderId: string;
-  amount: number;
-  currency: string;
+interface RazorpaySubscriptionResult {
+  subscriptionId: string;
   planId: string;
   planName: string;
   keyId: string;
@@ -60,8 +58,8 @@ interface SubscriptionState {
   fetchPlans: () => Promise<void>;
   verifyPurchase: (signedTransactionInfo: string) => Promise<void>;
   restorePurchase: (originalTransactionId: string) => Promise<void>;
-  createRazorpayOrder: (planId: string) => Promise<RazorpayOrderResult>;
-  verifyRazorpayPayment: (planId: string, payment: { razorpay_order_id: string; razorpay_payment_id: string; razorpay_signature: string }) => Promise<void>;
+  createRazorpaySubscription: (planId: string) => Promise<RazorpaySubscriptionResult>;
+  verifyRazorpayPayment: (planId: string, payment: { razorpay_subscription_id: string; razorpay_payment_id: string; razorpay_signature: string }) => Promise<void>;
   cancelSubscription: () => Promise<void>;
   reset: () => void;
 }
@@ -125,17 +123,17 @@ export const useSubscriptionStore = create<SubscriptionState>((set) => ({
     }
   },
 
-  createRazorpayOrder: async (planId: string) => {
+  createRazorpaySubscription: async (planId: string) => {
     set({ isLoading: true, error: null });
     try {
-      const res = await apiClient.post<{ success: boolean; data: RazorpayOrderResult }>(
-        "/subscriptions/razorpay/create-order",
+      const res = await apiClient.post<{ success: boolean; data: RazorpaySubscriptionResult }>(
+        "/subscriptions/razorpay/create-subscription",
         { planId }
       );
       set({ isLoading: false });
       return res.data.data;
     } catch (err: any) {
-      const message = err?.response?.data?.error?.message ?? err.message ?? "Failed to create order";
+      const message = err?.response?.data?.error?.message ?? err.message ?? "Failed to create subscription";
       set({ error: message, isLoading: false });
       throw new Error(message);
     }

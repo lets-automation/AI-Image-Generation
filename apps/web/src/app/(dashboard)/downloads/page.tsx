@@ -135,7 +135,7 @@ export default function DownloadsPage() {
       <p className="mb-6 text-sm text-gray-500">View your generated images and download history.</p>
 
       {/* Custom upload CTA */}
-      <div className="mb-6 overflow-hidden rounded-xl border border-dashed border-primary-200 bg-gradient-to-r from-primary-50/50 to-purple-50/50 p-0">
+      <div className="mb-6 overflow-hidden rounded-xl border border-dashed border-primary-200 bg-gradient-to-r from-primary-50/50 to-purple-50/50">
         <ImageUploadCard contentType="EVENT" variant="horizontal" />
       </div>
 

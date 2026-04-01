@@ -21,6 +21,7 @@ import { prisma } from "../config/database.js";
 import { logger } from "../utils/logger.js";
 import { appleProvider } from "../services/subscription/apple.provider.js";
 import { subscriptionService } from "../services/subscription.service.js";
+import { razorpayService } from "../services/razorpay/razorpay.service.js";
 import type { SubscriptionStatusResult } from "../services/apple/apple-types.js";
 
 const QUEUE_NAME = "subscription-reconciliation";
@@ -148,20 +149,24 @@ async function runReconciliation(): Promise<ReconciliationStats> {
     stats.total = subscriptions.length;
     logger.info({ count: stats.total }, "Subscriptions to reconcile");
 
-    // Step 3: Check each subscription against Apple
+    // Step 3: Check each subscription against its provider
     for (const sub of subscriptions) {
       try {
-        await reconcileSubscription(sub, stats);
+        if (sub.provider === "RAZORPAY") {
+          await reconcileRazorpaySubscription(sub, stats);
+        } else {
+          await reconcileSubscription(sub, stats);
+        }
         stats.checked++;
       } catch (err) {
         stats.errors++;
         logger.error(
-          { subscriptionId: sub.id, originalTxId: sub.originalTransactionId, err },
+          { subscriptionId: sub.id, originalTxId: sub.originalTransactionId, provider: sub.provider, err },
           "Failed to reconcile subscription"
         );
       }
 
-      // Rate limit: don't hammer Apple API (max ~2 req/sec)
+      // Rate limit: don't hammer APIs (max ~2 req/sec)
       await sleep(500);
     }
 
@@ -340,6 +345,144 @@ async function reconcileSubscription(
 
     await invalidateUserCache(sub.userId);
 
+    stats.mismatches++;
+    return;
+  }
+
+  // No mismatch — all good
+}
+
+/**
+ * Reconcile a Razorpay subscription against Razorpay's API.
+ */
+async function reconcileRazorpaySubscription(
+  sub: {
+    id: string;
+    userId: string;
+    originalTransactionId: string;
+    status: string;
+    currentPeriodEnd: Date;
+    plan: { weeklyCredits: number };
+  } & Record<string, any>,
+  stats: ReconciliationStats
+): Promise<void> {
+  const razorpaySubscriptionId = sub.razorpaySubscriptionId as string | null;
+  if (!razorpaySubscriptionId) {
+    // Legacy Razorpay subscription without subscription ID — skip
+    logger.warn(
+      { subscriptionId: sub.id },
+      "Razorpay subscription has no razorpaySubscriptionId — skipping reconciliation"
+    );
+    return;
+  }
+
+  let rzpStatus: { status: string; currentStart: Date | null; currentEnd: Date | null; endedAt: Date | null };
+  try {
+    rzpStatus = await razorpayService.getSubscriptionStatus(razorpaySubscriptionId);
+  } catch (err) {
+    logger.warn(
+      { subscriptionId: sub.id, razorpaySubscriptionId, err },
+      "Could not reach Razorpay API for reconciliation — skipping"
+    );
+    stats.errors++;
+    return;
+  }
+
+  const now = new Date();
+  const localStatus = sub.status;
+
+  // Case 1: Razorpay says 'active' but local period expired → missed webhook renewal
+  if (rzpStatus.status === "active" && sub.currentPeriodEnd < now && rzpStatus.currentEnd) {
+    logger.info(
+      { subscriptionId: sub.id, periodEnd: sub.currentPeriodEnd, rzpCurrentEnd: rzpStatus.currentEnd },
+      "Razorpay reconciliation: missed renewal detected — creating new balance"
+    );
+
+    await prisma.subscriptionBalance.updateMany({
+      where: { subscriptionId: sub.id, isClosed: false },
+      data: { isClosed: true },
+    });
+
+    const newPeriodStart = rzpStatus.currentStart ?? sub.currentPeriodEnd;
+    await prisma.subscriptionBalance.create({
+      data: {
+        userId: sub.userId,
+        subscriptionId: sub.id,
+        periodStart: newPeriodStart,
+        periodEnd: rzpStatus.currentEnd,
+        weeklyCredits: sub.plan.weeklyCredits,
+        remainingCredits: sub.plan.weeklyCredits,
+        usedCredits: 0,
+        isClosed: false,
+      },
+    });
+
+    await prisma.subscription.update({
+      where: { id: sub.id },
+      data: {
+        status: "ACTIVE",
+        currentPeriodStart: newPeriodStart,
+        currentPeriodEnd: rzpStatus.currentEnd,
+        lastRenewalDate: now,
+        autoRenewEnabled: true,
+      },
+    });
+
+    await subscriptionService.storeEvent(sub.id, null, "RENEWAL", null, now, {
+      source: "reconciliation",
+      provider: "RAZORPAY",
+      rzpStatus: rzpStatus.status,
+    });
+
+    await invalidateUserCache(sub.userId);
+    stats.renewalsMissed++;
+    stats.mismatches++;
+    return;
+  }
+
+  // Case 2: Razorpay says 'cancelled', 'completed', 'expired', or 'halted' → expire locally
+  if (
+    ["cancelled", "completed", "expired", "halted"].includes(rzpStatus.status) &&
+    (localStatus === "ACTIVE" || localStatus === "BILLING_RETRY")
+  ) {
+    logger.info(
+      { subscriptionId: sub.id, localStatus, rzpStatus: rzpStatus.status },
+      "Razorpay reconciliation: subscription ended — closing locally"
+    );
+
+    await prisma.subscription.update({
+      where: { id: sub.id },
+      data: {
+        status: "EXPIRED" as any,
+        autoRenewEnabled: false,
+      },
+    });
+
+    await prisma.subscriptionBalance.updateMany({
+      where: { subscriptionId: sub.id, isClosed: false },
+      data: { isClosed: true },
+    });
+
+    await subscriptionService.storeEvent(sub.id, null, "EXPIRE", null, now, {
+      source: "reconciliation",
+      provider: "RAZORPAY",
+      rzpStatus: rzpStatus.status,
+    });
+
+    await invalidateUserCache(sub.userId);
+    stats.expiredClosed++;
+    stats.mismatches++;
+    return;
+  }
+
+  // Case 3: Razorpay says 'pending' but we have ACTIVE → billing retry
+  if (rzpStatus.status === "pending" && localStatus === "ACTIVE") {
+    await prisma.subscription.update({
+      where: { id: sub.id },
+      data: { status: "BILLING_RETRY" },
+    });
+
+    await invalidateUserCache(sub.userId);
     stats.mismatches++;
     return;
   }

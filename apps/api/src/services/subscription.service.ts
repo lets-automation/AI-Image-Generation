@@ -24,6 +24,7 @@ import { logger } from "../utils/logger.js";
 import {
   NotFoundError,
   ConflictError,
+  BadRequestError,
   InsufficientCreditsError,
   SubscriptionRequiredError,
   TierNotAllowedError,
@@ -624,6 +625,10 @@ export class SubscriptionService {
   /**
    * Cancel auto-renewal on the user's active subscription.
    * The subscription stays active until currentPeriodEnd, then expires.
+   *
+   * Provider-aware:
+   * - APPLE: Cannot cancel server-side. Throws error directing user to Apple Settings.
+   * - RAZORPAY: Calls Razorpay API to cancel at cycle end, then updates local DB.
    */
   async cancelSubscription(userId: string) {
     const subscription = await this.findActiveSubscriptionFromDb(userId);
@@ -635,10 +640,25 @@ export class SubscriptionService {
       throw new ConflictError("Subscription is already set to cancel at period end");
     }
 
-    await prisma.subscription.update({
-      where: { id: subscription.id },
-      data: { autoRenewEnabled: false },
-    });
+    // Provider-specific cancellation
+    if (subscription.provider === "APPLE") {
+      throw new BadRequestError(
+        "Apple subscriptions cannot be cancelled from this app. " +
+        "Please go to Settings → Apple ID → Subscriptions on your iPhone/iPad to manage your subscription."
+      );
+    }
+
+    if (subscription.provider === "RAZORPAY") {
+      // Import and use Razorpay service to cancel via API
+      const { razorpayService } = await import("./razorpay/razorpay.service.js");
+      await razorpayService.cancelSubscription(userId);
+    } else {
+      // Generic fallback — just update local DB
+      await prisma.subscription.update({
+        where: { id: subscription.id },
+        data: { autoRenewEnabled: false },
+      });
+    }
 
     // Invalidate cache
     try {
@@ -648,7 +668,7 @@ export class SubscriptionService {
       // Non-critical
     }
 
-    logger.info({ userId, subscriptionId: subscription.id }, "Subscription auto-renewal cancelled");
+    logger.info({ userId, subscriptionId: subscription.id, provider: subscription.provider }, "Subscription auto-renewal cancelled");
 
     return this.getActiveSubscription(userId);
   }
