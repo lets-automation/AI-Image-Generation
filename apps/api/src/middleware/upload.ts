@@ -106,7 +106,7 @@ export function scanUploadedImage(
  * Must be called AFTER scanUploadedImage.
  */
 export function validateTemplateDimensions(
-  req: Request,
+  _req: Request,
   _res: Response,
   next: NextFunction
 ): void {
