@@ -1,4 +1,5 @@
 import sharp from "sharp";
+import { resizeToTarget } from "./resize.js";
 import { config } from "../../config/index.js";
 import { credentialService } from "../../services/credential.service.js";
 import { logger } from "../../utils/logger.js";
@@ -40,9 +41,9 @@ export class IdeogramProvider extends BaseProvider {
   private readonly baseUrl = "https://api.ideogram.ai";
 
   private readonly defaultImageWeightByTier: Record<QualityTier, number> = {
-    BASIC: 80,
-    STANDARD: 87,
-    PREMIUM: 93,
+    BASIC: 40,
+    STANDARD: 50,
+    PREMIUM: 60,
   };
 
   /** Fetch API key from DB first, fallback to env */
@@ -116,8 +117,9 @@ export class IdeogramProvider extends BaseProvider {
       magic_prompt_option: "OFF",
       style_type: styleType,
       aspect_ratio: aspectRatio,
-      // Negative prompt: avoid common text rendering issues
-      negative_prompt: "blurry text, garbled text, misspelled text, gibberish text, unreadable text, random characters, overlapping text, distorted letters, wrong language text, extra watermarks, duplicate text, extra text, invented text, NEW ARRIVAL, SALE, OFFER, DISCOUNT, BUY NOW, CALL NOW, LIMITED TIME, SPECIAL OFFER, HOT DEAL, FLASH SALE, promotional banner, sale sticker, marketing label, invented phone number, invented price, placeholder text, dummy text, template filler",
+      // Negative prompt: avoid visual quality defects only.
+      // Do NOT list specific text content here — it primes the model to generate those exact words.
+      negative_prompt: "blurry text, garbled text, misspelled text, unreadable text, distorted letters, overlapping text, random characters, low quality, watermark, duplicate text",
     };
 
     // Add resolution if specified in config
@@ -137,7 +139,7 @@ export class IdeogramProvider extends BaseProvider {
 
     // Set image weight (how much to reference the original style, 0-100)
     // Lower values give the AI more freedom to place text correctly.
-    // Default 35 (not 80) — high weight makes reference image dominate,
+    // Default 40-60 per tier — high weight (80+) makes the reference image dominate,
     // leaving no room for text placement and producing garbled results.
     // Admins can tune this per-tier via ModelPricing config.
     const tier = (input.params.tier as QualityTier) ?? "STANDARD";
@@ -164,10 +166,8 @@ export class IdeogramProvider extends BaseProvider {
     const outputBuffer = await this.extractImageFromResponse(data, input.signal);
 
     // Resize to the requested output dimensions
-    const finalBuffer = await sharp(outputBuffer)
-      .resize(input.width, input.height, { fit: "cover", position: "center" })
-      .png()
-      .toBuffer();
+    // Resize to the requested output dimensions using smart resize (no crop)
+    const finalBuffer = await resizeToTarget(outputBuffer, input.width, input.height);
 
     const costCents = (input.params.costCents as number) ?? 6;
 
@@ -198,7 +198,7 @@ export class IdeogramProvider extends BaseProvider {
         magic_prompt_option: "OFF",
         style_type: styleType,
         aspect_ratio: aspectRatio,
-        negative_prompt: "blurry text, garbled text, misspelled text, gibberish text, unreadable text, random characters, overlapping text, distorted letters, wrong language text, extra watermarks, duplicate text, extra text, invented text, NEW ARRIVAL, SALE, OFFER, DISCOUNT, BUY NOW, CALL NOW, LIMITED TIME, SPECIAL OFFER, HOT DEAL, FLASH SALE, promotional banner, sale sticker, marketing label, invented phone number, invented price, placeholder text, dummy text, template filler",
+        negative_prompt: "blurry text, garbled text, misspelled text, unreadable text, distorted letters, overlapping text, random characters, low quality, watermark, duplicate text",
       },
     };
 
@@ -226,10 +226,8 @@ export class IdeogramProvider extends BaseProvider {
     const data = (await response.json()) as IdeogramResponse;
     const outputBuffer = await this.extractImageFromResponse(data, input.signal);
 
-    const finalBuffer = await sharp(outputBuffer)
-      .resize(input.width, input.height, { fit: "cover", position: "center" })
-      .png()
-      .toBuffer();
+    // Resize to the requested output dimensions using smart resize (no crop)
+    const finalBuffer = await resizeToTarget(outputBuffer, input.width, input.height);
 
     const costCents = (input.params.costCents as number) ?? 6;
 

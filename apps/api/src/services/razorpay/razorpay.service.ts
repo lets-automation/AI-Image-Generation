@@ -90,7 +90,9 @@ export class RazorpayService {
       );
     }
 
-    // 2. Check if user already has an active subscription
+    // 2. Check if user already has a truly active subscription
+    //    Must check BOTH status AND period end date, because the DB status
+    //    can be stale for Razorpay subscriptions (no expiry webhook for legacy payments).
     const existingSub = await prisma.subscription.findFirst({
       where: {
         userId,
@@ -99,9 +101,28 @@ export class RazorpayService {
     });
 
     if (existingSub) {
-      throw new BadRequestError(
-        "You already have an active subscription. Wait for it to expire or cancel it first."
-      );
+      // If the period has actually ended, this is a stale record — clean it up
+      if (existingSub.currentPeriodEnd < new Date()) {
+        await prisma.$transaction(async (tx) => {
+          await tx.subscription.update({
+            where: { id: existingSub.id },
+            data: { status: "EXPIRED", autoRenewEnabled: false },
+          });
+          await tx.subscriptionBalance.updateMany({
+            where: { subscriptionId: existingSub.id, isClosed: false },
+            data: { isClosed: true },
+          });
+        });
+        logger.info(
+          { subscriptionId: existingSub.id, userId },
+          "Cleaned up stale ACTIVE subscription (period already ended) — allowing new purchase"
+        );
+        // Continue to create new subscription
+      } else {
+        throw new BadRequestError(
+          "You already have an active subscription. Wait for it to expire or cancel it first."
+        );
+      }
     }
 
     // 3. Create Razorpay Subscription (recurring)

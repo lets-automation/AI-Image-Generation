@@ -1,4 +1,5 @@
 import sharp from "sharp";
+import { resizeToTarget } from "./resize.js";
 import { config } from "../../config/index.js";
 import { credentialService } from "../../services/credential.service.js";
 import { logger } from "../../utils/logger.js";
@@ -130,17 +131,31 @@ export class GeminiProvider extends BaseProvider {
       });
     }
 
-    // Add text prompt
-    parts.push({ text: input.prompt });
+    // Add text prompt — prepend aspect ratio guidance since Gemini has no
+    // native size parameter for image generation
+    const aspectHint = this.getAspectHint(input.width, input.height);
+    const fullPrompt = aspectHint
+      ? `${aspectHint}\n\n${input.prompt}`
+      : input.prompt;
+    parts.push({ text: fullPrompt });
 
-    // Build the request body
-    const requestBody = {
+    // Build the request body — with systemInstruction if provided
+    const requestBody: Record<string, unknown> = {
       contents: [{ role: "user", parts }],
       generationConfig: {
-        responseModalities: ["IMAGE"],
-        // No temperature for image generation
+        // TEXT + IMAGE allows the model to reason about the instructions before
+        // generating, producing better adherence to the prompt.
+        responseModalities: ["TEXT", "IMAGE"],
       },
     };
+
+    // Use Gemini's dedicated systemInstruction field for rules/constraints.
+    // System instructions are processed with higher attention weight than user content.
+    if (input.systemInstruction) {
+      requestBody.systemInstruction = {
+        parts: [{ text: input.systemInstruction }],
+      };
+    }
 
     const url = `${this.baseUrl}/models/${model}:generateContent?key=${apiKey}`;
 
@@ -163,14 +178,8 @@ export class GeminiProvider extends BaseProvider {
     // Extract the generated image from the response
     const outputBuffer = this.extractImageFromResponse(data);
 
-    // Resize to the requested output dimensions
-    const finalBuffer = await sharp(outputBuffer)
-      .resize(input.width, input.height, {
-        fit: "cover",
-        position: "center",
-      })
-      .png()
-      .toBuffer();
+    // Resize to the requested output dimensions using smart resize (no crop)
+    const finalBuffer = await resizeToTarget(outputBuffer, input.width, input.height);
 
     const costCents = (input.params.costCents as number) ?? 5;
 
@@ -258,6 +267,25 @@ export class GeminiProvider extends BaseProvider {
     params: Record<string, unknown>
   ): number {
     return (params.costCents as number) ?? 5;
+  }
+
+  /**
+   * Generate a natural-language aspect ratio hint for the prompt.
+   * Gemini's generateContent doesn't have a native size/aspect parameter,
+   * so we guide it via text.
+   */
+  private getAspectHint(width: number, height: number): string | null {
+    if (!width || !height) return null;
+    const ratio = width / height;
+
+    if (Math.abs(ratio - 1) < 0.05) return "Generate this image in a square (1:1) aspect ratio.";
+    if (Math.abs(ratio - 9 / 16) < 0.05) return "Generate this image in a tall portrait (9:16) aspect ratio, suitable for stories.";
+    if (Math.abs(ratio - 3 / 4) < 0.05) return "Generate this image in portrait (3:4) aspect ratio.";
+    if (Math.abs(ratio - 4 / 3) < 0.05) return "Generate this image in landscape (4:3) aspect ratio.";
+    if (Math.abs(ratio - 16 / 9) < 0.05) return "Generate this image in wide landscape (16:9) aspect ratio.";
+    if (ratio < 0.8) return `Generate this image in a tall portrait aspect ratio (approximately ${width}:${height}).`;
+    if (ratio > 1.2) return `Generate this image in a wide landscape aspect ratio (approximately ${width}:${height}).`;
+    return null;
   }
 }
 

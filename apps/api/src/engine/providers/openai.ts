@@ -1,4 +1,5 @@
 import sharp from "sharp";
+import { resizeToTarget } from "./resize.js";
 import { config } from "../../config/index.js";
 import { credentialService } from "../../services/credential.service.js";
 import { logger } from "../../utils/logger.js";
@@ -241,10 +242,7 @@ export class OpenAIProvider extends BaseProvider {
       throw new Error("OpenAI response contained no image data (no b64_json or url)");
     }
 
-    const finalBuffer = await sharp(outputBuffer)
-      .resize(input.width, input.height, { fit: "cover", position: "center" })
-      .png()
-      .toBuffer();
+    const finalBuffer = await resizeToTarget(outputBuffer, input.width, input.height);
 
     const costCents = (input.params.costCents as number) ?? 8;
 

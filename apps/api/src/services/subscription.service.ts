@@ -950,9 +950,13 @@ export class SubscriptionService {
   /**
    * Find the active subscription from DB (no cache).
    * Considers ACTIVE, BILLING_RETRY, and GRACE_PERIOD as "active".
+   *
+   * Also handles stale ACTIVE records: if a Razorpay subscription's period
+   * has ended and it has no razorpaySubscriptionId (legacy one-time payment),
+   * clean it up and return null so the user can re-subscribe.
    */
   private async findActiveSubscriptionFromDb(userId: string) {
-    return prisma.subscription.findFirst({
+    const subscription = await prisma.subscription.findFirst({
       where: {
         userId,
         status: { in: ["ACTIVE", "BILLING_RETRY", "GRACE_PERIOD"] },
@@ -960,14 +964,53 @@ export class SubscriptionService {
       include: { plan: true },
       orderBy: { createdAt: "desc" },
     });
-  }
 
+    if (!subscription) return null;
+
+    // Check if the period has actually ended
+    const now = new Date();
+    if (subscription.currentPeriodEnd < now) {
+      // For Razorpay subscriptions with a razorpaySubscriptionId,
+      // the period might just be stale from a missed webhook — don't expire yet.
+      // softVerifyAndRecover will handle the recovery during credit check.
+      const rzpSubId = (subscription as any).razorpaySubscriptionId;
+      if (subscription.provider === "RAZORPAY" && !rzpSubId) {
+        // Legacy one-time payment — period ended, no way to renew.
+        // Clean it up so the user can re-subscribe.
+        await prisma.$transaction(async (tx) => {
+          await tx.subscription.update({
+            where: { id: subscription.id },
+            data: { status: "EXPIRED", autoRenewEnabled: false },
+          });
+          await tx.subscriptionBalance.updateMany({
+            where: { subscriptionId: subscription.id, isClosed: false },
+            data: { isClosed: true },
+          });
+        });
+        logger.info(
+          { subscriptionId: subscription.id, userId },
+          "Legacy Razorpay subscription period ended — marked as EXPIRED"
+        );
+        return null;
+      }
+      // For Apple or Razorpay-with-subscription, return as-is so the
+      // credit check path can attempt soft-verify recovery.
+    }
+
+    return subscription;
+  }
   /**
-   * Soft-verify with Apple when no active balance is found.
+   * Soft-verify with the payment provider when no active balance is found.
    *
-   * Guard: Only call Apple if there's a subscription in a
+   * Guard: Only call the provider if there's a subscription in a
    * recoverable state (ACTIVE, BILLING_RETRY, GRACE_PERIOD).
    * If EXPIRED or REVOKED, reject immediately.
+   *
+   * Handles:
+   * - APPLE: Verify with App Store Server API (missed webhook recovery)
+   * - RAZORPAY: Verify with Razorpay Subscriptions API (missed webhook recovery)
+   * - Legacy RAZORPAY (no razorpaySubscriptionId): Mark as expired — these are
+   *   one-time payments that cannot be auto-renewed.
    *
    * This handles the race condition where a user generates at
    * period boundary and the renewal webhook hasn't arrived yet.
@@ -999,6 +1042,23 @@ export class SubscriptionService {
       return null;
     }
 
+    // Route to provider-specific verification
+    if (subscription.provider === "RAZORPAY") {
+      return this.softVerifyRazorpay(tx, subscription, userId, now);
+    }
+
+    // Default: Apple verification
+    return this.softVerifyApple(tx, subscription, userId);
+  }
+
+  /**
+   * Soft-verify with Apple's App Store Server API.
+   */
+  private async softVerifyApple(
+    tx: Prisma.TransactionClient,
+    subscription: Subscription & { plan: SubscriptionPlan },
+    userId: string
+  ) {
     try {
       logger.info(
         { subscriptionId: subscription.id, userId },
@@ -1039,7 +1099,7 @@ export class SubscriptionService {
 
         logger.info(
           { subscriptionId: subscription.id, userId, newPeriodEnd: appleStatus.expiresDate },
-          "Recovered missed renewal via soft-verify"
+          "Recovered missed renewal via Apple soft-verify"
         );
 
         return {
@@ -1051,12 +1111,151 @@ export class SubscriptionService {
         };
       }
 
-      // Apple confirms expired or other non-active state
+      // Apple confirms expired — update our DB to match
+      await tx.subscription.update({
+        where: { id: subscription.id },
+        data: { status: "EXPIRED" },
+      });
+
       return null;
     } catch (err) {
       logger.error(
         { err, subscriptionId: subscription.id, userId },
         "Soft-verify with Apple failed — rejecting credit check"
+      );
+      return null;
+    }
+  }
+
+  /**
+   * Soft-verify with Razorpay Subscriptions API.
+   *
+   * If the subscription has a razorpaySubscriptionId, check with Razorpay
+   * to see if a renewal payment was captured that we missed via webhook.
+   *
+   * If no razorpaySubscriptionId exists, this is a legacy one-time payment
+   * that cannot auto-renew — expire it properly.
+   */
+  private async softVerifyRazorpay(
+    tx: Prisma.TransactionClient,
+    subscription: Subscription & { plan: SubscriptionPlan },
+    userId: string,
+    now: Date
+  ) {
+    const razorpaySubscriptionId = (subscription as any).razorpaySubscriptionId as string | null;
+
+    // Legacy one-time Razorpay payment — no subscription to verify
+    if (!razorpaySubscriptionId) {
+      logger.info(
+        { subscriptionId: subscription.id, userId },
+        "Legacy Razorpay one-time payment — period ended, no subscription to renew. Marking as expired."
+      );
+
+      // Close all open balances
+      await tx.subscriptionBalance.updateMany({
+        where: { subscriptionId: subscription.id, isClosed: false },
+        data: { isClosed: true },
+      });
+
+      // Mark subscription as expired
+      await tx.subscription.update({
+        where: { id: subscription.id },
+        data: { status: "EXPIRED", autoRenewEnabled: false },
+      });
+
+      await tx.subscriptionEvent.create({
+        data: {
+          subscriptionId: subscription.id,
+          eventType: "EXPIRE",
+          effectiveDate: now,
+          payload: {
+            reason: "legacy_one_time_payment_expired",
+            provider: "RAZORPAY",
+          } as any,
+        },
+      });
+
+      return null;
+    }
+
+    // Has a Razorpay subscription — check with API
+    try {
+      logger.info(
+        { subscriptionId: subscription.id, userId, razorpaySubscriptionId },
+        "Soft-verifying with Razorpay (possible missed webhook)"
+      );
+
+      const { razorpayService } = await import("./razorpay/razorpay.service.js");
+      const rzpStatus = await razorpayService.getSubscriptionStatus(razorpaySubscriptionId);
+
+      // Razorpay says active — renewal happened but we missed the webhook
+      if (rzpStatus.status === "active" && rzpStatus.currentEnd) {
+        const newPeriodStart = subscription.currentPeriodEnd;
+        const newPeriodEnd = rzpStatus.currentEnd;
+
+        // Create the missing balance
+        const balance = await tx.subscriptionBalance.create({
+          data: {
+            userId,
+            subscriptionId: subscription.id,
+            periodStart: newPeriodStart,
+            periodEnd: newPeriodEnd,
+            weeklyCredits: subscription.plan.weeklyCredits,
+            remainingCredits: subscription.plan.weeklyCredits,
+            usedCredits: 0,
+            isClosed: false,
+          },
+        });
+
+        // Update subscription with new period
+        await tx.subscription.update({
+          where: { id: subscription.id },
+          data: {
+            status: "ACTIVE",
+            currentPeriodStart: newPeriodStart,
+            currentPeriodEnd: newPeriodEnd,
+            lastRenewalDate: now,
+            autoRenewEnabled: true,
+          },
+        });
+
+        logger.info(
+          { subscriptionId: subscription.id, userId, newPeriodEnd },
+          "Recovered missed renewal via Razorpay soft-verify"
+        );
+
+        return {
+          id: balance.id,
+          remainingCredits: balance.remainingCredits,
+          weeklyCredits: balance.weeklyCredits,
+          periodEnd: balance.periodEnd,
+          subscriptionId: balance.subscriptionId,
+        };
+      }
+
+      // Razorpay confirms not active (cancelled, halted, completed, etc.)
+      if (["cancelled", "halted", "completed", "expired"].includes(rzpStatus.status)) {
+        await tx.subscription.update({
+          where: { id: subscription.id },
+          data: { status: "EXPIRED", autoRenewEnabled: false },
+        });
+
+        await tx.subscriptionBalance.updateMany({
+          where: { subscriptionId: subscription.id, isClosed: false },
+          data: { isClosed: true },
+        });
+
+        logger.info(
+          { subscriptionId: subscription.id, razorpayStatus: rzpStatus.status },
+          "Razorpay subscription is not active — marking as expired"
+        );
+      }
+
+      return null;
+    } catch (err) {
+      logger.error(
+        { err, subscriptionId: subscription.id, userId, razorpaySubscriptionId },
+        "Soft-verify with Razorpay failed — rejecting credit check"
       );
       return null;
     }

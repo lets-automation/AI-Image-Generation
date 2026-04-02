@@ -3,7 +3,7 @@ import type { Language, QualityTier } from "@ep/shared";
 import type { OverlayField, OverlayOptions } from "./overlay.js";
 import { getProviderForTier } from "../providers/registry.js";
 import { recordProviderCost } from "../../resilience/cost-guard.js";
-import { buildGenerationPrompt, buildIdeogramPrompt } from "../prompt-builder.js";
+import { buildGenerationPrompt, buildIdeogramPrompt, buildGeminiPrompt } from "../prompt-builder.js";
 import { logger } from "../../utils/logger.js";
 
 /**
@@ -110,17 +110,24 @@ export async function renderEnhanced(
     const resolved = await getProviderForTier(qualityTier as QualityTier);
 
     // Build provider-specific prompt:
-    // - Ideogram/Gemini cannot handle structured prompts with section headers/rule blocks —
-    //   they render them as visual content or get confused by rigid formatting.
-    //   Use a concise natural-language prompt instead.
-    // - OpenAI handles the full structured prompt correctly.
-    // Pass sourceImageCount so prompt builder can describe multiple reference images
+    // - OpenAI: full structured prompt with section headers (handles them well)
+    // - Gemini: split into systemInstruction + userContent (leverages Gemini's architecture)
+    // - Ideogram: concise natural-language prompt (can't handle structured formatting)
     const sourceImageCount = sourceImageBuffers?.length ?? 0;
     const promptInput = { userPrompt: prompt, fields, language, templateDescription, hasLogo, sourceImageCount };
-    const useStructuredPrompt = resolved.provider.name === "openai";
-    const aiPrompt = useStructuredPrompt
-      ? buildGenerationPrompt(promptInput)
-      : buildIdeogramPrompt(promptInput);
+
+    let aiPrompt: string;
+    let aiSystemInstruction: string | undefined;
+
+    if (resolved.provider.name === "gemini") {
+      const geminiParts = buildGeminiPrompt(promptInput);
+      aiPrompt = geminiParts.userContent;
+      aiSystemInstruction = geminiParts.systemInstruction;
+    } else if (resolved.provider.name === "openai") {
+      aiPrompt = buildGenerationPrompt(promptInput);
+    } else {
+      aiPrompt = buildIdeogramPrompt(promptInput);
+    }
 
     logger.info(
       { provider: resolved.provider.name, modelId: resolved.modelId, tier: qualityTier, promptLength: aiPrompt.length },
@@ -133,6 +140,7 @@ export async function renderEnhanced(
 
     const aiResult = await resolved.provider.generate({
       prompt: aiPrompt,
+      systemInstruction: aiSystemInstruction,
       baseImageBuffer: templateBuffer,
       logoBuffer,
       sourceImageBuffers,

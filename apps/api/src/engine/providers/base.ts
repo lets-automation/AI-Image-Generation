@@ -15,6 +15,8 @@ import type { QualityTier } from "@ep/shared";
 
 export interface ProviderGenerateInput {
   prompt: string;
+  /** System-level instruction for providers that support it (e.g., Gemini systemInstruction) */
+  systemInstruction?: string;
   /** Base/template image buffer — used as style reference for the AI */
   baseImageBuffer?: Buffer;
   /** Logo image buffer — passed as additional reference image to the AI */
