@@ -16,8 +16,6 @@ interface ImageUploadCardProps {
 
 const ACCEPTED_FORMATS = ["image/jpeg", "image/png", "image/webp"];
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
-const MIN_DIMENSION = 768;
-const RECOMMENDED_MIN = 1024;
 const MAX_FILES = 6;
 
 
@@ -44,23 +42,10 @@ export function ImageUploadCard({ contentType, variant = "vertical" }: ImageUplo
       image.src = preview;
     });
 
-    if (dimensionsResult.width < MIN_DIMENSION || dimensionsResult.height < MIN_DIMENSION) {
-      URL.revokeObjectURL(preview);
-      throw new Error(
-        `Image ${file.name} is too small (${dimensionsResult.width}x${dimensionsResult.height}px). Minimum ${MIN_DIMENSION}x${MIN_DIMENSION}px required.`
-      );
-    }
-
-    const warning =
-      dimensionsResult.width < RECOMMENDED_MIN || dimensionsResult.height < RECOMMENDED_MIN
-        ? `${file.name}: ${dimensionsResult.width}x${dimensionsResult.height}px. Recommended ${RECOMMENDED_MIN}x${RECOMMENDED_MIN}px+.`
-        : undefined;
-
     return {
       preview,
       width: dimensionsResult.width,
       height: dimensionsResult.height,
-      warning,
     };
   }
 
@@ -102,17 +87,10 @@ export function ImageUploadCard({ contentType, variant = "vertical" }: ImageUplo
       const nextDimensions = append
         ? [...dimensions, ...results.map((result) => ({ w: result.width, h: result.height }))]
         : results.map((result) => ({ w: result.width, h: result.height }));
-      const nextWarnings = append
-        ? [
-            ...warnings,
-            ...results.map((result) => result.warning).filter((warning): warning is string => Boolean(warning)),
-          ]
-        : results.map((result) => result.warning).filter((warning): warning is string => Boolean(warning));
-
       setUploadedFiles(nextFiles);
       setPreviews(nextPreviews);
       setDimensions(nextDimensions);
-      setWarnings(nextWarnings);
+      setWarnings([]);
 
 
     } catch (err) {
@@ -294,7 +272,7 @@ export function ImageUploadCard({ contentType, variant = "vertical" }: ImageUplo
         </p>
         <div className={`mt-2 flex items-center gap-1.5 text-xs text-gray-400 ${variant === "horizontal" ? "justify-center sm:justify-start" : "justify-center"}`}>
           <Info className="h-3.5 w-3.5 shrink-0" />
-          <span>Up to {MAX_FILES} images, recommended {RECOMMENDED_MIN}x{RECOMMENDED_MIN}px+</span>
+          <span>Up to {MAX_FILES} images</span>
         </div>
       </div>
       {error && (

@@ -28,10 +28,8 @@ export interface ImageScanResult {
   sanitizedBuffer?: Buffer;
 }
 
-// Max dimensions to prevent pixel bomb attacks
-const MAX_IMAGE_DIMENSION = 10000; // 10k px on any side
+// Max pixel count to prevent pixel bomb attacks
 const MAX_PIXEL_COUNT = 50_000_000; // 50 megapixels
-const MIN_IMAGE_DIMENSION = 100; // At least 100px
 
 // Allowed image formats after magic byte verification
 const ALLOWED_FORMATS = new Set(["jpeg", "png", "webp", "gif"]);
@@ -74,20 +72,6 @@ export async function scanImage(
 
     if (width === 0 || height === 0) {
       return { safe: false, reason: "Invalid image dimensions (0 width or height)" };
-    }
-
-    if (width > MAX_IMAGE_DIMENSION || height > MAX_IMAGE_DIMENSION) {
-      return {
-        safe: false,
-        reason: `Image too large: ${width}x${height}. Maximum ${MAX_IMAGE_DIMENSION}px on any side`,
-      };
-    }
-
-    if (width < MIN_IMAGE_DIMENSION || height < MIN_IMAGE_DIMENSION) {
-      return {
-        safe: false,
-        reason: `Image too small: ${width}x${height}. Minimum ${MIN_IMAGE_DIMENSION}px`,
-      };
     }
 
     // 4. Pixel bomb detection

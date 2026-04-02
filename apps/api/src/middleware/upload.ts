@@ -4,9 +4,7 @@ import { UPLOAD_LIMITS } from "@ep/shared";
 import { BadRequestError } from "../utils/errors.js";
 import { scanImage, hasValidImageMagicBytes } from "../moderation/image-scan.js";
 
-// Template dimension constraints (OpenAI accepts any reasonable dimensions)
-const MIN_TEMPLATE_DIMENSION = 768;
-const MAX_TEMPLATE_DIMENSION = 8192;
+
 
 const storage = multer.memoryStorage();
 
@@ -112,28 +110,5 @@ export function validateTemplateDimensions(
   _res: Response,
   next: NextFunction
 ): void {
-  const metadata = (req as any).imageMetadata;
-  if (!metadata) {
-    return next(); // Skip if no file/metadata (e.g., updating template without new image)
-  }
-
-  const { width, height } = metadata;
-
-  if (width < MIN_TEMPLATE_DIMENSION || height < MIN_TEMPLATE_DIMENSION) {
-    return next(
-      new BadRequestError(
-        `Template image too small: ${width}x${height}px. Minimum ${MIN_TEMPLATE_DIMENSION}x${MIN_TEMPLATE_DIMENSION}px required for AI generation quality.`
-      )
-    );
-  }
-
-  if (width > MAX_TEMPLATE_DIMENSION || height > MAX_TEMPLATE_DIMENSION) {
-    return next(
-      new BadRequestError(
-        `Template image too large: ${width}x${height}px. Maximum ${MAX_TEMPLATE_DIMENSION}px on any side.`
-      )
-    );
-  }
-
   next();
 }
