@@ -21,7 +21,12 @@ export interface OverlayField {
   fieldKey: string;
   value: string;
   fieldType: "TEXT" | "TEXTAREA" | "IMAGE" | "PHONE" | "EMAIL" | "URL" | "NUMBER" | "COLOR" | "SELECT";
-  position: Position;
+  /**
+   * Position on the 3×3 grid. Optional — fields without positions are
+   * still included in AI prompts but skipped by the local overlay renderer
+   * (which needs pixel coordinates for compositing).
+   */
+  position?: Position;
 }
 
 export interface OverlayOptions {
@@ -105,13 +110,14 @@ export async function renderOverlay(options: OverlayOptions): Promise<OverlayRes
   // Resolve safe zones to pixel coordinates (scaled)
   const resolvedZones = resolveAllSafeZones(safeZones, outWidth, outHeight);
 
-  // Render each field
+  // Render each field (only fields with positions — local compositing needs coordinates)
   for (const field of fields) {
+    if (!field.position) continue; // No position → handled by AI renderer, not local overlay
     try {
       if (field.fieldType === "IMAGE") {
-        await renderLogoField(ctx, field, resolvedZones, outWidth, outHeight);
+        await renderLogoField(ctx, field as OverlayField & { position: Position }, resolvedZones, outWidth, outHeight);
       } else {
-        renderTextField(ctx, field, resolvedZones, language, outWidth, outHeight);
+        renderTextField(ctx, field as OverlayField & { position: Position }, resolvedZones, language, outWidth, outHeight);
       }
     } catch (err) {
       logger.warn({ fieldKey: field.fieldKey, err }, "Failed to render field, skipping");
@@ -138,7 +144,7 @@ export async function renderOverlay(options: OverlayOptions): Promise<OverlayRes
 
 function renderTextField(
   ctx: ReturnType<ReturnType<typeof createCanvas>["getContext"]>,
-  field: OverlayField,
+  field: OverlayField & { position: Position },
   zones: ResolvedSafeZone[],
   language: Language,
   canvasWidth: number,
@@ -200,7 +206,7 @@ function renderTextField(
 
 async function renderLogoField(
   ctx: ReturnType<ReturnType<typeof createCanvas>["getContext"]>,
-  field: OverlayField,
+  field: OverlayField & { position: Position },
   zones: ResolvedSafeZone[],
   canvasWidth: number,
   canvasHeight: number

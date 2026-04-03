@@ -339,7 +339,9 @@ export async function executePipeline(
       return "TEXT";
     };
 
-    // Flatten field values — grouped (repeatable) entries become individual overlay fields
+    // Flatten field values — grouped (repeatable) entries become individual overlay fields.
+    // ALL fields with values are included regardless of positionMap.
+    // Fields with positions get explicit placement; fields without get auto-placed by the AI.
     const overlayFields: OverlayField[] = [];
     for (const [key, value] of Object.entries(fieldValues)) {
       if (Array.isArray(value)) {
@@ -348,7 +350,7 @@ export async function executePipeline(
         const groupedFallbackBySubKey = new Map<
           string,
           {
-            position: Position;
+            position: Position | undefined;
             fieldType: OverlayField["fieldType"];
             values: string[];
           }
@@ -376,18 +378,17 @@ export async function executePipeline(
                 continue;
               }
 
+              // Use subKey position as fallback, or undefined (auto-place)
               const fallbackPos = positionMap[subKey];
-              if (fallbackPos) {
-                const existing = groupedFallbackBySubKey.get(subKey);
-                if (existing) {
-                  existing.values.push(textValue);
-                } else {
-                  groupedFallbackBySubKey.set(subKey, {
-                    position: fallbackPos,
-                    fieldType: inferFieldType(subKey, textValue, fieldTypeMap.get(subKey)),
-                    values: [textValue],
-                  });
-                }
+              const existing = groupedFallbackBySubKey.get(subKey);
+              if (existing) {
+                existing.values.push(textValue);
+              } else {
+                groupedFallbackBySubKey.set(subKey, {
+                  position: fallbackPos, // may be undefined
+                  fieldType: inferFieldType(subKey, textValue, fieldTypeMap.get(subKey)),
+                  values: [textValue],
+                });
               }
             }
             continue;
@@ -405,7 +406,7 @@ export async function executePipeline(
               fieldType: inferFieldType(key, textValue, fieldTypeMap.get(key)),
               position: compositePos,
             });
-          } else if (positionMap[key]) {
+          } else {
             primitiveFallbackValues.push(textValue);
           }
         }
@@ -415,34 +416,54 @@ export async function executePipeline(
             fieldKey: `${key}_${subKey}_combined`,
             value: aggregate.values.join(" | "),
             fieldType: aggregate.fieldType,
-            position: aggregate.position,
+            position: aggregate.position, // may be undefined
           });
         }
 
-        if (primitiveFallbackValues.length > 0 && positionMap[key]) {
+        if (primitiveFallbackValues.length > 0) {
           const joinedValue = primitiveFallbackValues.join(" | ");
           overlayFields.push({
             fieldKey: `${key}_combined`,
             value: joinedValue,
             fieldType: inferFieldType(key, joinedValue, fieldTypeMap.get(key)),
-            position: positionMap[key],
+            position: positionMap[key], // may be undefined
           });
         }
-      } else if (positionMap[key]) {
+      } else {
+        // Non-array field — include with position if available, without if not
         const textValue = toRenderableText(value);
         if (textValue) {
           overlayFields.push({
             fieldKey: key,
             value: textValue,
             fieldType: inferFieldType(key, textValue, fieldTypeMap.get(key)),
-            position: positionMap[key],
+            position: positionMap[key], // may be undefined — AI decides placement
           });
         }
       }
     }
 
+    // Log field mapping results for diagnostics
+    logger.info(
+      {
+        generationId,
+        inputFieldCount: Object.keys(fieldValues).length,
+        positionedFieldCount: overlayFields.filter(f => f.position).length,
+        unpositionedFieldCount: overlayFields.filter(f => !f.position).length,
+        totalOverlayFields: overlayFields.length,
+        fields: overlayFields.map(f => ({
+          key: f.fieldKey,
+          type: f.fieldType,
+          position: f.position ?? "AUTO",
+          valueLength: f.value.length,
+        })),
+      },
+      "Pipeline: built overlay fields for AI prompt"
+    );
+
     const duplicatePositions = new Map<Position, string[]>();
     for (const field of overlayFields) {
+      if (!field.position) continue; // Skip unpositioned for conflict check
       const existing = duplicatePositions.get(field.position) ?? [];
       existing.push(field.fieldKey);
       duplicatePositions.set(field.position, existing);

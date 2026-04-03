@@ -21,11 +21,13 @@ import type { OverlayField } from "./renderers/overlay.js";
  *    Ideogram renders structured formatting as visual content, so this
  *    uses flowing sentences without headers, bullets, or rule blocks.
  *
- * Design principles:
- * - Tell the model what TO do, not what NOT to do
- * - Keep prompts concise (~500 tokens positive instruction)
- * - No exhaustive lists of banned words (they prime the model to generate them)
- * - One clear content guard sentence instead of paragraph-long checklists
+ * Architecture:
+ * - Fields are split into "positioned" (have explicit grid position) and
+ *   "unpositioned" (included as content, AI decides placement).
+ * - Each field gets ONE inline language directive (translate / keep exact).
+ *   No separate translation tables or DO NOT TRANSLATE lists.
+ * - Template theme/event context is preserved via explicit instruction.
+ * - Text quality rules prevent garbling, merging, and overlapping.
  */
 
 /** Map position codes to spatial descriptions */
@@ -53,6 +55,15 @@ const LANGUAGE_INFO: Record<string, { name: string; script: string; direction: s
   KOREAN: { name: "Korean", script: "Korean (Hangul)", direction: "LTR" },
   PORTUGUESE: { name: "Portuguese", script: "Latin", direction: "LTR" },
   GERMAN: { name: "German", script: "Latin", direction: "LTR" },
+  GUJARATI: { name: "Gujarati", script: "Gujarati", direction: "LTR" },
+  MARATHI: { name: "Marathi", script: "Devanagari", direction: "LTR" },
+  TAMIL: { name: "Tamil", script: "Tamil", direction: "LTR" },
+  TELUGU: { name: "Telugu", script: "Telugu", direction: "LTR" },
+  BENGALI: { name: "Bengali", script: "Bengali", direction: "LTR" },
+  KANNADA: { name: "Kannada", script: "Kannada", direction: "LTR" },
+  MALAYALAM: { name: "Malayalam", script: "Malayalam", direction: "LTR" },
+  PUNJABI: { name: "Punjabi", script: "Gurmukhi", direction: "LTR" },
+  URDU: { name: "Urdu", script: "Nastaliq/Arabic", direction: "RTL" },
 };
 
 export interface PromptBuilderInput {
@@ -80,6 +91,53 @@ export interface GeminiPromptParts {
   userContent: string;
 }
 
+
+// ═══════════════════════════════════════════════════════════════════
+//  Shared: Build per-field instruction line
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Build ONE instruction line for a single field.
+ * Includes the exact value, positioning (if any), and inline language directive.
+ * No separate translation tables — everything the AI needs is in this one line.
+ */
+function buildFieldInstruction(
+  field: OverlayField,
+  language: Language,
+  langInfo: { name: string; script: string },
+): string {
+  const key = field.fieldKey.replace(/_/g, " ");
+  const isPhone = isPhoneField(field);
+  const translatable = isTranslatable(field);
+
+  // Position prefix
+  const posPrefix = field.position
+    ? `[${(POSITION_DESCRIPTIONS[field.position] ?? "prominently").toUpperCase()}] `
+    : "";
+
+  // Build the value + language directive as ONE instruction
+  if (isPhone) {
+    const digits = String(field.value).replace(/\D/g, "");
+    return (
+      `${posPrefix}${key}: Phone number "${field.value}" — ` +
+      `render all ${digits.length} digits clearly and legibly (${digits.split("").join(" ")}). ` +
+      `Do not translate or modify.`
+    );
+  }
+
+  if (language !== "ENGLISH" && translatable) {
+    return (
+      `${posPrefix}${key}: Translate "${field.value}" into ${langInfo.name} using ${langInfo.script} script. ` +
+      `The translated text must be legible and correctly rendered.`
+    );
+  }
+
+  // Non-translatable (brand names, emails, URLs, addresses, social) or English language
+  const typeHint = getFieldTypeHint(field.fieldType, field.fieldKey);
+  return `${posPrefix}${key}: "${field.value}" — display EXACTLY as written, do not translate or modify. ${typeHint}`;
+}
+
+
 // ═══════════════════════════════════════════════════════════════════
 //  OpenAI Prompt — Structured format, ~500-800 tokens
 // ═══════════════════════════════════════════════════════════════════
@@ -88,8 +146,8 @@ export interface GeminiPromptParts {
  * Build a structured AI prompt for OpenAI poster/creative generation.
  *
  * Structured with clear section headers — OpenAI handles this format well.
- * Focuses on POSITIVE instructions (what to create) with a single
- * concise content guard instead of exhaustive forbidden-word lists.
+ * Each field gets ONE inline instruction with language directive.
+ * No separate translation tables or DO NOT TRANSLATE lists.
  */
 export function buildGenerationPrompt(input: PromptBuilderInput): string {
   const { userPrompt, fields, language, templateDescription, hasLogo, sourceImageCount = 0 } = input;
@@ -97,84 +155,79 @@ export function buildGenerationPrompt(input: PromptBuilderInput): string {
 
   const textFields = fields.filter((f) => f.fieldType !== "IMAGE");
   const logoFields = fields.filter((f) => f.fieldType === "IMAGE");
-  const { mainTitles, secondaryInfo, contactInfo } = classifyFields(textFields);
-  const translatableFields = textFields.filter((f) => isTranslatable(f));
-  const keepAsIsFields = textFields.filter((f) => !isTranslatable(f));
+
+  // Split into positioned and unpositioned
+  const positionedFields = textFields.filter((f) => f.position);
+  const unpositionedFields = textFields.filter((f) => !f.position);
+
+  const { mainTitles, contactInfo } = classifyFields(textFields);
 
   const sections: string[] = [];
 
-  // ─── Section 1: Role + Content Rule ──────────────────────
+  // ─── Section 1: Role + Core Rules ──────────────────────
   sections.push(
     `You are a professional graphic designer creating a high-quality poster/creative.\n\n` +
-    `CONTENT RULE: The output must contain ONLY the ${textFields.length} text element${textFields.length === 1 ? "" : "s"} listed below. ` +
-    `Do not add any other text, numbers, labels, slogans, or symbols beyond what is explicitly specified. ` +
-    `If a field value is empty or not provided, leave it out entirely.\n\n` +
+    `CORE RULES:\n` +
+    `1. Include ALL ${textFields.length} text element${textFields.length === 1 ? "" : "s"} listed below — every single one must appear in the output.\n` +
+    `2. Do not add any text, numbers, labels, slogans, or symbols beyond what is specified.\n` +
+    `3. Render every text element clearly and legibly — no garbled, distorted, overlapping, or merged text.\n` +
+    `4. Each text element must be fully readable and distinct from other elements.\n` +
+    `5. Preserve the theme and event context visible in the reference image (e.g., event greetings, decorative elements).` +
     (sourceImageCount > 1
-      ? `You are provided ${sourceImageCount} separate reference images of the same subject from different angles. ` +
-        `Study ALL of them to understand the subject's complete appearance — shape, color, texture, details — ` +
-        `and create an accurate depiction.\n`
-      : `Use the provided reference image as a visual style guide — match its color palette, lighting, mood, and composition.\n`) +
-    `\nIntegrate text naturally into the poster's typography and design composition — ` +
-    `as part of the poster's visual layout, not as flat overlay text.`
+      ? `\n\nYou are provided ${sourceImageCount} separate reference images of the same subject from different angles. ` +
+        `Study ALL of them to understand the subject's complete appearance.`
+      : `\n\nUse the provided reference image as a visual style guide — match its color palette, lighting, mood, and composition.`) +
+    `\n\nIntegrate user-provided text naturally into the poster's typography and design — ` +
+    `as part of the visual layout, not as flat overlay text.`
   );
 
   // ─── Template description ────────────────────────────────
   if (templateDescription) {
     sections.push(
       `---\n\nSTYLE REFERENCE\n\n${templateDescription}\n\n` +
-      `This describes the visual style only. All text in the output must come from the TEXT CONTENT section below.`
+      `This describes the visual style only. All text in the output must come from the sections below.`
     );
   }
 
-  // ─── Section 2: Text Content ─────────────────────────────
-  if (textFields.length > 0) {
+  // ─── Section 2: Positioned Text Fields ───────────────────
+  if (positionedFields.length > 0) {
     const textLines: string[] = [
-      `---\n\nTEXT CONTENT — ${textFields.length} ELEMENT${textFields.length === 1 ? "" : "S"}\n`
+      `---\n\nPOSITIONED TEXT — ${positionedFields.length} element${positionedFields.length === 1 ? "" : "s"} (place at specified positions)\n`
     ];
 
-    for (const field of textFields) {
-      const posDesc = POSITION_DESCRIPTIONS[field.position] ?? "prominently";
-      const typeHint = getFieldTypeHint(field.fieldType, field.fieldKey);
-      const isPhone = isPhoneField(field);
-
-      if (isPhone) {
-        const digits = String(field.value).replace(/\D/g, "");
-        textLines.push(
-          `- [${posDesc.toUpperCase()}] ${field.fieldKey.replace(/_/g, " ")}: ` +
-          `Phone number "${field.value}" — render all ${digits.length} digits clearly and legibly ` +
-          `(${digits.split("").join(" ")}).`
-        );
-      } else if (language !== "ENGLISH" && isTranslatable(field)) {
-        textLines.push(
-          `- [${posDesc.toUpperCase()}] ${field.fieldKey.replace(/_/g, " ")}: ` +
-          `Translate "${field.value}" into ${langInfo.name} using ${langInfo.script} script. ${typeHint}`
-        );
-      } else {
-        textLines.push(
-          `- [${posDesc.toUpperCase()}] ${field.fieldKey.replace(/_/g, " ")}: ` +
-          `"${field.value}" — display exactly as written. ${typeHint}`
-        );
-      }
+    for (const field of positionedFields) {
+      textLines.push(`- ${buildFieldInstruction(field, language, langInfo)}`);
     }
 
-    // Visual hierarchy
-    textLines.push(
-      `\nVISUAL HIERARCHY:\n` +
-      `• LARGEST: ${mainTitles.length > 0 ? mainTitles.map(f => `"${f.value}"`).join(", ") : "N/A"}\n` +
-      `• MEDIUM: ${secondaryInfo.length > 0 ? secondaryInfo.map(f => `"${f.value}"`).join(", ") : "N/A"}\n` +
-      `• SMALLEST: ${contactInfo.length > 0 ? contactInfo.map(f => `"${f.value}"`).join(", ") : "N/A"}`
-    );
-
-    // Position rules (simplified)
     textLines.push(
       `\nPOSITION GRID: The image is divided into a 3×3 grid (top/middle/bottom × left/center/right). ` +
-      `Place each element in its specified position. Do not move elements to different positions.`
+      `Place each element in its specified grid cell.`
     );
 
     sections.push(textLines.join("\n"));
   }
 
-  // ─── Section 3: Logo Instructions ─────────────────────────
+  // ─── Section 3: Unpositioned Text Fields ─────────────────
+  if (unpositionedFields.length > 0) {
+    const infoLines: string[] = [
+      `---\n\nADDITIONAL CONTENT — ${unpositionedFields.length} element${unpositionedFields.length === 1 ? "" : "s"} (place in a suitable area)\n`
+    ];
+
+    infoLines.push(
+      `Include ALL of the following as a compact, readable info section in the poster.`
+    );
+    infoLines.push(
+      `Place this section in an area that does not overlap with the positioned elements or main artwork.\n`
+    );
+
+    for (const field of unpositionedFields) {
+      infoLines.push(`- ${buildFieldInstruction(field, language, langInfo)}`);
+    }
+
+    sections.push(infoLines.join("\n"));
+  }
+
+  // ─── Section 4: Logo Instructions ──────────────────────────
   if (hasLogo || logoFields.length > 0) {
     const logoInstructions: string[] = [
       `---\n\nLOGO (from second reference image)\n\n` +
@@ -183,7 +236,9 @@ export function buildGenerationPrompt(input: PromptBuilderInput): string {
     ];
 
     for (const field of logoFields) {
-      const posDesc = POSITION_DESCRIPTIONS[field.position] ?? "prominently";
+      const posDesc = field.position
+        ? POSITION_DESCRIPTIONS[field.position] ?? "prominently"
+        : "prominently";
       logoInstructions.push(`Place the logo in the ${posDesc} of the poster.`);
     }
 
@@ -192,7 +247,7 @@ export function buildGenerationPrompt(input: PromptBuilderInput): string {
       `• Reproduce the logo exactly as shown — same shape, colors, proportions.\n` +
       `• Place it once only. Do not duplicate or distort it.\n` +
       `• Size it appropriately (visible but not dominating).\n` +
-      `• If the logo contains text, reproduce that text exactly.`
+      `• If the logo contains text, reproduce that text exactly as-is.`
     );
 
     sections.push(logoInstructions.join("\n"));
@@ -202,63 +257,63 @@ export function buildGenerationPrompt(input: PromptBuilderInput): string {
     );
   }
 
-  // ─── Section 4: Style & Language ──────────────────────────
+  // ─── Section 5: Language & Style ──────────────────────────
   const styleRules: string[] = [
-    `---\n\nSTYLE & LANGUAGE\n`
+    `---\n\nLANGUAGE & QUALITY\n`
   ];
 
   if (language === "ENGLISH") {
-    styleRules.push(`Language: English. All text should be in English.`);
+    styleRules.push(`Language: English.`);
   } else {
     styleRules.push(
-      `LANGUAGE: ${langInfo.name.toUpperCase()}\n\n` +
-      `All translatable text must appear in ${langInfo.name} using ${langInfo.script} script.\n` +
-      `Phone numbers, emails, URLs → Keep exactly as provided.\n` +
-      `Brand names → Keep in original language.`
+      `Output language: ${langInfo.name.toUpperCase()} (${langInfo.script} script).\n\n` +
+      `IMPORTANT: Each field above has its own language instruction (translate or keep exact). Follow those per-field instructions precisely.\n` +
+      `• Fields marked "translate" → render in ${langInfo.name} using ${langInfo.script} script.\n` +
+      `• Fields marked "display EXACTLY as written" → keep in their original language/form. Do NOT transliterate brand names, emails, phone numbers, URLs, or addresses into ${langInfo.script}.`
     );
 
-    if (language === "ARABIC") {
-      styleRules.push(`Arabic text must be rendered right-to-left (RTL) with correct letter joining.`);
+    if ((language as string) === "ARABIC" || (language as string) === "URDU") {
+      styleRules.push(`\nRender ${langInfo.name} text right-to-left (RTL) with correct letter joining.`);
     }
-    if (language === "JAPANESE" || language === "CHINESE" || language === "KOREAN") {
-      styleRules.push(`Use proper ${langInfo.script} characters. Do not substitute with Latin/English characters.`);
+    if ((language as string) === "HINDI" || (language as string) === "MARATHI") {
+      styleRules.push(`\nUse proper Devanagari script (हिन्दी). Do not write Hindi words using English/Latin letters. Do not transliterate English brand names into Devanagari — keep them in English.`);
     }
-    if (language === "HINDI") {
-      styleRules.push(`Use Devanagari script (हिन्दी). Do not write Hindi in English/Latin letters.`);
+    if ((language as string) === "GUJARATI") {
+      styleRules.push(`\nUse proper Gujarati script (ગુજરાતી). Do not transliterate English brand names into Gujarati — keep them in English.`);
     }
-
-    // Translation table
-    if (translatableFields.length > 0) {
-      styleRules.push(`\nTRANSLATION TABLE — translate these into ${langInfo.name}:\n`);
-      for (const f of translatableFields) {
-        const posDesc = POSITION_DESCRIPTIONS[f.position] ?? "prominently";
-        styleRules.push(
-          `  "${f.value}" → ${langInfo.name} (${langInfo.script}), position: ${posDesc}`
-        );
-      }
-    }
-    if (keepAsIsFields.length > 0) {
-      styleRules.push(
-        `\nDO NOT TRANSLATE — keep exactly as written:\n` +
-        keepAsIsFields.map(f => `  • "${f.value}" (${isPhoneField(f) ? "phone number" : "proper noun/contact"})`).join("\n")
-      );
+    if (["JAPANESE", "CHINESE", "KOREAN"].includes(language)) {
+      styleRules.push(`\nUse proper ${langInfo.script} characters. Do not substitute with Latin/English characters.`);
     }
   }
 
-  // Design quality
+  // Visual hierarchy
+  if (mainTitles.length > 0 || contactInfo.length > 0) {
+    styleRules.push(
+      `\nVISUAL HIERARCHY:\n` +
+      `• Main titles/names → LARGEST text size\n` +
+      `• Other info → MEDIUM text size\n` +
+      `• Contact details (phone, email, address, website, social) → SMALLEST text size`
+    );
+  }
+
+  styleRules.push(
+    `\nTEXT QUALITY:\n` +
+    `• Every text element must be crisp, clear, and fully readable.\n` +
+    `• Do not let text elements overlap, merge into each other, or bleed into artwork.\n` +
+    `• Maintain proper spacing between all text elements.\n` +
+    `• Match professional poster typography standards.`
+  );
+
   styleRules.push(
     `\nDESIGN: Match the visual style of the reference image. ` +
     `The poster should look professionally designed with the provided content.`
   );
 
-  // User's creative direction
   if (userPrompt.trim()) {
     styleRules.push(`\nCreative direction: ${userPrompt}`);
   }
 
   sections.push(styleRules.join("\n"));
-
-  // NO FINAL CHECKLIST — the content rule in Section 1 is sufficient.
 
   return sections.join("\n\n");
 }
@@ -271,14 +326,8 @@ export function buildGenerationPrompt(input: PromptBuilderInput): string {
 /**
  * Build a split prompt for Google Gemini image generation.
  *
- * Returns separate system instruction and user content:
- * - `systemInstruction`: Behavioral rules and role — sent via Gemini's
- *   dedicated systemInstruction field for higher-priority processing.
- * - `userContent`: The actual content to generate (text fields, positions,
- *   style reference, creative direction).
- *
- * This leverages Gemini's architecture where system instructions are
- * processed with higher attention weight than user messages.
+ * Returns separate system instruction and user content.
+ * Each field gets ONE inline language directive — no separate translation tables.
  */
 export function buildGeminiPrompt(input: PromptBuilderInput): GeminiPromptParts {
   const { userPrompt, fields, language, templateDescription, hasLogo, sourceImageCount = 0 } = input;
@@ -286,31 +335,38 @@ export function buildGeminiPrompt(input: PromptBuilderInput): GeminiPromptParts 
 
   const textFields = fields.filter((f) => f.fieldType !== "IMAGE");
   const logoFields = fields.filter((f) => f.fieldType === "IMAGE");
-  const translatableFields = textFields.filter((f) => isTranslatable(f));
-  const keepAsIsFields = textFields.filter((f) => !isTranslatable(f));
+  const positionedFields = textFields.filter((f) => f.position);
+  const unpositionedFields = textFields.filter((f) => !f.position);
 
   // ─── System Instruction (rules & role) ──────────────────
   const systemParts: string[] = [
     `You are a professional graphic designer. Generate a high-quality poster image.`,
     ``,
     `Rules:`,
-    `1. Include ONLY the text elements the user specifies. Do not add any additional text, numbers, labels, slogans, or symbols.`,
-    `2. Use the reference image as a visual style guide — match its colors, lighting, mood, and composition.`,
-    `3. Integrate text naturally into the poster's typography — as part of the visual design, not flat overlay text.`,
-    `4. Place each text element in its specified position using a 3×3 grid (top/middle/bottom × left/center/right).`,
-    `5. If a value is empty or not provided, omit it entirely. Do not invent content.`,
-    `6. Render all phone number digits accurately and legibly.`,
+    `1. Include ALL text elements the user specifies — every single one must appear in the output.`,
+    `2. Do not add any text, numbers, labels, slogans, or symbols beyond what is specified.`,
+    `3. Use the reference image as a visual style guide — match its colors, lighting, mood, and composition.`,
+    `4. Preserve the theme and event context from the reference image (e.g., event greetings, decorative elements).`,
+    `5. Integrate text naturally into the poster's typography — as part of the visual design, not flat overlay text.`,
+    `6. Render ALL text clearly and legibly — no garbled, distorted, overlapping, or merged text.`,
+    `7. Each text element must be fully readable and visually distinct from other elements.`,
+    `8. Place positioned elements in their specified grid cells (3×3 grid: top/middle/bottom × left/center/right).`,
+    `9. Render all phone number digits accurately and legibly.`,
+    `10. If a value is empty or not provided, omit it entirely. Do not invent content.`,
   ];
 
   if (language !== "ENGLISH") {
     systemParts.push(
-      `7. All translatable text must be in ${langInfo.name} using ${langInfo.script} script. Keep phone numbers, emails, URLs, and brand names as-is.`
+      `11. Follow each field's inline language instruction precisely: "translate" means render in ${langInfo.name} using ${langInfo.script}; "display EXACTLY as written" means keep as-is. Do NOT transliterate brand names, emails, or contact info into ${langInfo.script}.`
     );
-    if (language === "ARABIC") {
-      systemParts.push(`8. Render Arabic text right-to-left (RTL) with correct letter joining.`);
+    if ((language as string) === "ARABIC" || (language as string) === "URDU") {
+      systemParts.push(`12. Render ${langInfo.name} text right-to-left (RTL) with correct letter joining.`);
     }
-    if (language === "HINDI") {
-      systemParts.push(`8. Use Devanagari script (हिन्दी). Do not use Latin letters for Hindi.`);
+    if ((language as string) === "HINDI" || (language as string) === "MARATHI") {
+      systemParts.push(`12. Use Devanagari script (हिन्दी) for translated text. Keep English brand names in English — do not transliterate them.`);
+    }
+    if ((language as string) === "GUJARATI") {
+      systemParts.push(`12. Use Gujarati script (ગુજરાતી) for translated text. Keep English brand names in English.`);
     }
   }
 
@@ -332,49 +388,30 @@ export function buildGeminiPrompt(input: PromptBuilderInput): GeminiPromptParts 
     userParts.push(`Reference style: ${templateDescription}`);
   }
 
-  // Text fields
-  if (textFields.length > 0) {
-    userParts.push(`\nCreate a poster with exactly these ${textFields.length} text element${textFields.length === 1 ? "" : "s"}:`);
+  // Positioned text fields
+  if (positionedFields.length > 0) {
+    userParts.push(`\nCreate a poster with these ${positionedFields.length} positioned text element${positionedFields.length === 1 ? "" : "s"}:`);
+    for (const field of positionedFields) {
+      userParts.push(`• ${buildFieldInstruction(field, language, langInfo)}`);
+    }
+  }
 
-    for (const field of textFields) {
-      const posDesc = POSITION_DESCRIPTIONS[field.position] ?? "prominently";
-
-      if (isPhoneField(field)) {
-        const digits = String(field.value).replace(/\D/g, "");
-        userParts.push(
-          `• At ${posDesc}: Phone number "${field.value}" (${digits.length} digits: ${digits.split("").join(" ")})`
-        );
-      } else if (language !== "ENGLISH" && isTranslatable(field)) {
-        userParts.push(
-          `• At ${posDesc}: Translate "${field.value}" into ${langInfo.name}`
-        );
-      } else {
-        userParts.push(
-          `• At ${posDesc}: "${field.value}" (exact text)`
-        );
-      }
+  // Unpositioned text fields
+  if (unpositionedFields.length > 0) {
+    userParts.push(`\nAlso include these ${unpositionedFields.length} additional element${unpositionedFields.length === 1 ? "" : "s"} as a compact info section in a suitable area:`);
+    for (const field of unpositionedFields) {
+      userParts.push(`• ${buildFieldInstruction(field, language, langInfo)}`);
     }
   }
 
   // Logo
   if (hasLogo || logoFields.length > 0) {
-    const logoPos = logoFields[0]
+    const logoPos = logoFields[0]?.position
       ? (POSITION_DESCRIPTIONS[logoFields[0].position] ?? "prominently")
       : "prominently";
     userParts.push(`\nInclude the provided logo at ${logoPos}, reproduced exactly as shown.`);
   } else {
     userParts.push(`\nDo not add any logo or watermark.`);
-  }
-
-  // Translation specifics
-  if (language !== "ENGLISH" && translatableFields.length > 0) {
-    userParts.push(`\nTranslate these into ${langInfo.name} (${langInfo.script}):`);
-    for (const f of translatableFields) {
-      userParts.push(`  "${f.value}" → ${langInfo.name}`);
-    }
-    if (keepAsIsFields.length > 0) {
-      userParts.push(`Keep these as-is: ${keepAsIsFields.map(f => `"${f.value}"`).join(", ")}`);
-    }
   }
 
   // Creative direction
@@ -397,11 +434,8 @@ export function buildGeminiPrompt(input: PromptBuilderInput): GeminiPromptParts 
  * Build a concise, natural-language prompt for Ideogram.
  *
  * Ideogram CANNOT handle structured prompts with section headers, bullet lists,
- * or all-caps rule blocks — it treats those as content to render visually,
- * producing billboard-like imagery with garbled text from the prompt structure.
- *
- * This produces a short, flowing description that Ideogram interprets correctly.
- * magic_prompt_option must stay OFF so Ideogram doesn't rewrite this.
+ * or all-caps rule blocks — it treats those as content to render visually.
+ * Each field still gets its inline language directive.
  */
 export function buildIdeogramPrompt(input: PromptBuilderInput): string {
   const { userPrompt, fields, language, templateDescription, hasLogo, sourceImageCount = 0 } = input;
@@ -420,43 +454,49 @@ export function buildIdeogramPrompt(input: PromptBuilderInput): string {
   // Multiple reference images context
   if (sourceImageCount > 1) {
     parts.push(
-      `You are provided ${sourceImageCount} separate reference images showing the same subject from different angles or perspectives. ` +
-      `Study all of them to understand the subject's complete appearance — shape, color, texture, and details from every angle. ` +
-      `Use this comprehensive understanding to create an accurate and detailed depiction of the subject.`
+      `You are provided ${sourceImageCount} separate reference images showing the same subject from different angles. ` +
+      `Study all of them to understand the subject's complete appearance and create an accurate depiction.`
     );
   }
 
-  // Style reference from template
+  // Template + theme preservation
   if (templateDescription) {
-    parts.push(`Reference style: ${templateDescription}.`);
+    parts.push(`Reference style: ${templateDescription}. Preserve the theme and event context from the reference.`);
+  } else {
+    parts.push(`Preserve the theme and event context visible in the reference image.`);
   }
 
   // Language instruction
   if (language !== "ENGLISH") {
     parts.push(
-      `All text in the poster must be in ${langInfo.name} using ${langInfo.script} script.`
+      `Translatable text must be in ${langInfo.name} using ${langInfo.script} script. ` +
+      `Brand names, phone numbers, emails, URLs, and addresses must stay exactly as written — do not transliterate them.`
     );
   }
 
-  // Text elements — natural sentences
+  // Text fields — natural sentences, with inline language directives
   if (textFields.length > 0) {
-    parts.push(`The poster must show exactly the following text elements and nothing else:`);
+    parts.push(`The poster must include exactly the following ${textFields.length} text element${textFields.length === 1 ? "" : "s"} — no extra text:`);
 
     for (const field of textFields) {
-      const posDesc = POSITION_DESCRIPTIONS[field.position] ?? "prominently";
+      const isPhone = isPhoneField(field);
+      const translatable = isTranslatable(field);
+      const posDesc = field.position
+        ? `at the ${POSITION_DESCRIPTIONS[field.position] ?? "prominently"}`
+        : "in a suitable area";
 
-      if (isPhoneField(field)) {
+      if (isPhone) {
         const digits = String(field.value).replace(/\D/g, "");
         parts.push(
-          `At the ${posDesc}, show the phone number "${field.value}" with every digit perfectly legible (${digits.split("").join(" ")}, ${digits.length} digits total).`
+          `Show the phone number "${field.value}" ${posDesc}, with every digit perfectly legible (${digits.split("").join(" ")}, ${digits.length} digits total). Do not modify.`
         );
-      } else if (language !== "ENGLISH" && isTranslatable(field)) {
+      } else if (language !== "ENGLISH" && translatable) {
         parts.push(
-          `At the ${posDesc}, show "${field.value}" translated into ${langInfo.name}.`
+          `Show "${field.value}" translated into ${langInfo.name} ${posDesc}.`
         );
       } else {
         parts.push(
-          `At the ${posDesc}, show the text "${field.value}" exactly as written.`
+          `Show "${field.value}" exactly as written ${posDesc}. Do not translate or modify.`
         );
       }
     }
@@ -464,7 +504,7 @@ export function buildIdeogramPrompt(input: PromptBuilderInput): string {
 
   // Logo
   if (hasLogo || logoFields.length > 0) {
-    const logoPos = logoFields[0]
+    const logoPos = logoFields[0]?.position
       ? (POSITION_DESCRIPTIONS[logoFields[0].position] ?? "prominently")
       : "prominently";
     parts.push(`Include the provided logo image at the ${logoPos}, reproduced exactly.`);
@@ -472,9 +512,10 @@ export function buildIdeogramPrompt(input: PromptBuilderInput): string {
     parts.push(`Do not add any logo, watermark, or brand mark.`);
   }
 
-  // Concise content guard — NO list of banned marketing terms
+  // Quality guard
   parts.push(
-    `Include only the text elements listed above. Do not add any other text, labels, or numbers.`
+    `Every text element must be crisp, clear and fully readable — no garbled, overlapping, or merged text. ` +
+    `Include only the text elements listed above.`
   );
 
   return parts.join(" ");
@@ -482,11 +523,12 @@ export function buildIdeogramPrompt(input: PromptBuilderInput): string {
 
 
 // ═══════════════════════════════════════════════════════════════════
-//  Helper Functions (unchanged)
+//  Helper Functions
 // ═══════════════════════════════════════════════════════════════════
 
 /**
  * Check if a field represents a phone number.
+ * Uses field type AND key pattern matching — works with any field key name.
  */
 function isPhoneField(field: OverlayField): boolean {
   const key = field.fieldKey.toLowerCase();
@@ -501,33 +543,38 @@ function isPhoneField(field: OverlayField): boolean {
 
 /**
  * Determine if a field's value should be translated into the target language.
- * Brand names, phone numbers, emails, URLs, addresses → keep as-is.
- * Taglines, event names, descriptions, offers → translate.
+ *
+ * NEVER translate: phone, email, URL, brand/business names, addresses, social media handles.
+ * These are proper nouns, contact data, or structured identifiers that must stay as-is.
+ *
+ * TRANSLATE: taglines, event names, descriptions, offers, greetings, headlines.
+ *
+ * This uses field type and key pattern matching — no hardcoded field names.
  */
 function isTranslatable(field: OverlayField): boolean {
   const key = field.fieldKey.toLowerCase();
   const type = field.fieldType;
 
-  // Never translate these types
+  // Never translate these field types
   if (type === "PHONE" || type === "EMAIL" || type === "URL" || type === "IMAGE") return false;
 
-  // Never translate contact info
+  // Never translate contact info (detected by key pattern)
   if (key.includes("phone") || key.includes("mobile") || key.includes("tel")) return false;
   if (key.includes("email")) return false;
-  if (key.includes("website") || key.includes("url")) return false;
-  if (key.includes("address")) return false;
+  if (key.includes("website") || key.includes("url") || key.includes("link")) return false;
+  if (key.includes("address") || key.includes("location") || key.includes("venue")) return false;
+  if (key.includes("social") || key.includes("instagram") || key.includes("facebook") || key.includes("twitter") || key.includes("youtube")) return false;
 
-  // Don't translate brand/business names (proper nouns)
+  // Never translate brand/business/company names (proper nouns)
   if (key.includes("brand") || key.includes("business") || key.includes("company")) return false;
-  if (key === "business_name" || key === "brand_name" || key === "company_name") return false;
 
-  // Translate everything else (titles, event names, taglines, descriptions, offers, etc.)
+  // Translate everything else (titles, event names, taglines, descriptions, offers, greetings, etc.)
   return true;
 }
 
 /**
  * Classify text fields into visual hierarchy categories
- * based on field type and key patterns.
+ * based on field type and key patterns. Works with any field key name.
  */
 function classifyFields(fields: OverlayField[]): {
   mainTitles: OverlayField[];
@@ -545,11 +592,14 @@ function classifyFields(fields: OverlayField[]): {
     if (type === "PHONE" || type === "EMAIL" || type === "URL" ||
         key.includes("phone") || key.includes("mobile") ||
         key.includes("email") || key.includes("website") ||
-        key.includes("address") || key.includes("url")) {
+        key.includes("address") || key.includes("url") ||
+        key.includes("social") || key.includes("instagram") ||
+        key.includes("facebook") || key.includes("twitter")) {
       contactInfo.push(field);
     } else if (key.includes("name") || key.includes("title") ||
                key.includes("brand") || key.includes("business") ||
-               key.includes("event") || key.includes("heading")) {
+               key.includes("event") || key.includes("heading") ||
+               key.includes("company")) {
       mainTitles.push(field);
     } else {
       secondaryInfo.push(field);
@@ -561,6 +611,7 @@ function classifyFields(fields: OverlayField[]): {
 
 /**
  * Get a rendering hint for a field type to help the AI style it appropriately.
+ * Uses field type and key patterns — works with arbitrary field names.
  */
 function getFieldTypeHint(fieldType: OverlayField["fieldType"], fieldKey: string): string {
   const keyLower = fieldKey.toLowerCase();
@@ -577,14 +628,17 @@ function getFieldTypeHint(fieldType: OverlayField["fieldType"], fieldKey: string
   if (keyLower.includes("brand") || keyLower.includes("business") || keyLower.includes("company")) {
     return "Brand/business name — make it prominent. Exact spelling required.";
   }
+  if (keyLower.includes("social") || keyLower.includes("instagram") || keyLower.includes("facebook")) {
+    return "Social media handle — render exactly.";
+  }
   if (keyLower.includes("tagline") || keyLower.includes("slogan")) {
     return "Tagline — render as subtitle, smaller than the main heading.";
   }
   if (keyLower.includes("date") || keyLower.includes("time")) {
     return "Date/time — render clearly and prominently.";
   }
-  if (keyLower.includes("venue") || keyLower.includes("location")) {
-    return "Venue/location — render clearly.";
+  if (keyLower.includes("venue") || keyLower.includes("location") || keyLower.includes("address")) {
+    return "Address/location — render clearly.";
   }
   if (keyLower.includes("offer") || keyLower.includes("discount")) {
     return "Offer/discount text — render the provided text clearly.";
