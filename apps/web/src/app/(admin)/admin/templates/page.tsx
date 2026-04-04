@@ -148,11 +148,6 @@ export default function AdminTemplatesPage() {
       URL.revokeObjectURL(url);
       setUploadDimensions({ w, h });
 
-      if (w < 768 || h < 768) {
-        setUploadError(`Image too small (${w}x${h}px). Templates must be at least 768x768px for AI generation.`);
-        return;
-      }
-
       if (w < 1024 || h < 1024) {
         setUploadWarning(`Image is ${w}x${h}px. For best results, use 1024x1024px or larger.`);
       } else if (w > 4096 || h > 4096) {
@@ -531,7 +526,7 @@ export default function AdminTemplatesPage() {
               </SelectContent>
             </Select>
           </FormField>
-          <FormField label="Image File" required description="Accepted formats: JPEG, PNG, WebP. Min 768x768px, recommended 1024x1024px+.">
+          <FormField label="Image File" required description="Accepted formats: JPEG, PNG, WebP. Recommended 1024x1024px+.">
             <Input type="file" accept="image/jpeg,image/png,image/webp"
               onChange={(e) => handleFileSelect(e.target.files?.[0])} required />
             {uploadDimensions && !uploadError && (

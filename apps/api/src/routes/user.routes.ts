@@ -167,7 +167,6 @@ router.post(
 );
 
 // POST /upload-base-image — Upload a user's base image to Cloudinary (for generation without template)
-const MIN_BASE_IMAGE_DIMENSION = 768;
 const RECOMMENDED_MIN_DIMENSION = 1024;
 
 router.post(
@@ -184,14 +183,6 @@ router.post(
       const metadata = (req as any).imageMetadata as { width: number; height: number; format: string } | undefined;
       const width = metadata?.width ?? 0;
       const height = metadata?.height ?? 0;
-
-      // Hard reject images below minimum
-      if (width < MIN_BASE_IMAGE_DIMENSION || height < MIN_BASE_IMAGE_DIMENSION) {
-        return res.status(400).json({
-          success: false,
-          message: `Image too small: ${width}x${height}. Minimum ${MIN_BASE_IMAGE_DIMENSION}x${MIN_BASE_IMAGE_DIMENSION}px required for AI generation.`,
-        });
-      }
 
       // Build warnings for suboptimal dimensions
       const warnings: string[] = [];

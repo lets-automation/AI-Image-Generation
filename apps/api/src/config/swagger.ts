@@ -862,7 +862,7 @@ const options: swaggerJSDoc.Options = {
         post: {
           tags: ["Users"],
           summary: "Upload a base image for generation (instead of using a template)",
-          description: "Upload a base image (min 768x768px, recommended 1024x1024+). Returns URL + dimensions + warnings.",
+          description: "Upload a base image (recommended 1024x1024+). Returns URL + dimensions + warnings.",
           requestBody: {
             required: true,
             content: {
@@ -900,7 +900,7 @@ const options: swaggerJSDoc.Options = {
                 },
               },
             },
-            400: { description: "Image too small (min 768x768px)" },
+            400: { description: "No image provided" },
           },
         },
       },
