@@ -21,7 +21,7 @@ const languageValidator = z.string().min(1);
 
 const contentTypeEnum = z.enum(["EVENT", "POSTER"]);
 
-const orientationEnum = z.enum(["SQUARE", "PORTRAIT", "LANDSCAPE", "STORY", "WIDE"]);
+const orientationEnum = z.enum(["SQUARE", "SQUARE_HD", "PORTRAIT", "LANDSCAPE", "STORY", "WIDE"]);
 
 const fieldValueSchema = z.union([
   z.string().max(GENERATION_LIMITS.MAX_FIELD_VALUE_LENGTH),

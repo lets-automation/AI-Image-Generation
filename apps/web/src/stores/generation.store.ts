@@ -17,14 +17,14 @@ import { useAuthStore } from "@/stores/auth.store";
 import { v4 as uuidv4 } from "uuid";
 
 export function getLanguageFromCountry(countryCode?: string | null): string {
-  if (!countryCode) return "en";
+  if (!countryCode) return "ENGLISH";
   const upperCountry = countryCode.toUpperCase();
   for (const [lang, countries] of Object.entries(LANGUAGE_COUNTRY_MAP)) {
     if ((countries as string[]).includes(upperCountry)) {
       return lang;
     }
   }
-  return "en";
+  return "ENGLISH";
 }
 
 export interface PositionConflict {

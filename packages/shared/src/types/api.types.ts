@@ -105,7 +105,7 @@ export interface CreateGenerationRequest {
   contentType: ContentType;
   categoryId?: string;
   qualityTier: QualityTier;
-  orientation?: "SQUARE" | "PORTRAIT" | "LANDSCAPE" | "STORY" | "WIDE" | null;
+  orientation?: "SQUARE" | "SQUARE_HD" | "PORTRAIT" | "LANDSCAPE" | "STORY" | "WIDE" | null;
   languages?: string[];
   prompt: string;
   fieldValues: FieldValues;

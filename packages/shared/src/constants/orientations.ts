@@ -5,6 +5,7 @@
 
 export const Orientation = {
   SQUARE: "SQUARE",
+  SQUARE_HD: "SQUARE_HD",
   PORTRAIT: "PORTRAIT",
   LANDSCAPE: "LANDSCAPE",
   STORY: "STORY",
@@ -34,6 +35,15 @@ export const ORIENTATION_CONFIGS: Record<Orientation, OrientationConfig> = {
     width: 1024,
     height: 1024,
     icon: "square",
+  },
+  SQUARE_HD: {
+    code: "SQUARE_HD",
+    label: "Square HD",
+    description: "1:1 2K — High-resolution prints, large displays",
+    ratio: "1:1",
+    width: 2048,
+    height: 2048,
+    icon: "square_hd",
   },
   PORTRAIT: {
     code: "PORTRAIT",
@@ -78,9 +88,12 @@ export const ALL_ORIENTATIONS = Object.values(Orientation);
 /**
  * Map orientation to OpenAI size parameter.
  * OpenAI accepts specific size strings.
+ * SQUARE_HD maps to 1024x1024 — OpenAI max square is 1024x1024,
+ * the pipeline upscales to 2048x2048 via Sharp Lanczos resampling.
  */
 export const OPENAI_SIZE_MAP: Record<Orientation, string> = {
   SQUARE: "1024x1024",
+  SQUARE_HD: "1024x1024", // Generate at max native, upscale to 2048 via Sharp
   PORTRAIT: "1024x1536",
   LANDSCAPE: "1536x1024",
   STORY: "1024x1536",  // Closest supported (OpenAI doesn't have 9:16, use portrait)
@@ -92,6 +105,7 @@ export const OPENAI_SIZE_MAP: Record<Orientation, string> = {
  */
 export const IDEOGRAM_ASPECT_MAP: Record<Orientation, string> = {
   SQUARE: "ASPECT_1_1",
+  SQUARE_HD: "ASPECT_1_1", // Same 1:1 ratio, upscaled to 2048 via Sharp
   PORTRAIT: "ASPECT_3_4",
   LANDSCAPE: "ASPECT_4_3",
   STORY: "ASPECT_9_16",

@@ -39,7 +39,7 @@ import { Switch } from "@/components/ui/switch";
 import {
   Loader2, ChevronDown, CheckCircle2,
   ArrowLeft, Sparkles, Image as ImageIcon, Globe, Info, Users,
-  Square, RectangleVertical, RectangleHorizontal, Smartphone, Monitor,
+  Square, RectangleVertical, RectangleHorizontal, Smartphone, Monitor, Maximize2,
   Plus, Trash2, Upload,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -1261,6 +1261,7 @@ export default function GeneratePage() {
                   const isSelected = store.orientation === orient;
                   const OrientIcon = {
                     SQUARE: Square,
+                    SQUARE_HD: Maximize2,
                     PORTRAIT: RectangleVertical,
                     LANDSCAPE: RectangleHorizontal,
                     STORY: Smartphone,

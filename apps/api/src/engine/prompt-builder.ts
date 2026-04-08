@@ -18,6 +18,13 @@ import type { OverlayField } from "./renderers/overlay.js";
  * - Minimal rules — modern image models handle layout, typography, and translation natively
  * - No hardcoded field name checks — works with any field schema the admin creates
  * - No forced grouping — AI decides optimal placement for unpositioned fields
+ *
+ * PROMPT PRIORITY ORDER (highest → lowest attention):
+ * 1. Language requirement (MUST be respected)
+ * 2. User's creative direction / prompt text
+ * 3. Field data (names, values, positions)
+ * 4. Style reference description
+ * 5. General rules
  */
 
 /** Map position codes to spatial descriptions */
@@ -115,15 +122,15 @@ function buildFieldLine(field: OverlayField): string {
  */
 function buildLanguageDirective(language: Language): string {
   if (language === "ENGLISH") {
-    return "Language: English.";
+    return "LANGUAGE: English. All text must be in English.";
   }
 
   const langInfo = LANGUAGE_INFO[language] ?? LANGUAGE_INFO.ENGLISH;
 
   const lines: string[] = [
-    `TARGET LANGUAGE: ${langInfo.name} (${langInfo.script} script).`,
+    `⚠ MANDATORY LANGUAGE REQUIREMENT: ${langInfo.name} (${langInfo.script} script).`,
     ``,
-    `Translate decorative text, greetings, marketing copy, slogans, event names, and descriptive content into ${langInfo.name} using ${langInfo.script} script.`,
+    `ALL decorative text, greetings, marketing copy, slogans, event names, and descriptive content MUST be written in ${langInfo.name} using ${langInfo.script} script.`,
     `Do NOT translate or transliterate — keep EXACTLY as provided:`,
     `• Brand names, company names, person names (proper nouns)`,
     `• Phone numbers, email addresses, website URLs`,
@@ -156,8 +163,13 @@ function buildLanguageDirective(language: Language): string {
 /**
  * Build a structured AI prompt for OpenAI poster/creative generation.
  *
- * Simplified structure: fields listed with key+value, single global language
- * directive, no per-field translate/keep instructions, no forced grouping.
+ * PRIORITY ORDER (top = highest attention for GPT Image models):
+ * 1. Language requirement (Section 1 — top of prompt, highest weight)
+ * 2. User's creative direction (Section 2 — early placement = higher attention)
+ * 3. Core generation rules (Section 3)
+ * 4. Text elements / fields (Section 4)
+ * 5. Logo instructions (Section 5)
+ * 6. Style quality (Section 6)
  */
 export function buildGenerationPrompt(input: PromptBuilderInput): string {
   const { userPrompt, fields, language, templateDescription, hasLogo, sourceImageCount = 0 } = input;
@@ -169,9 +181,19 @@ export function buildGenerationPrompt(input: PromptBuilderInput): string {
 
   const sections: string[] = [];
 
-  // ─── Section 1: Role + Core Rules ──────────────────────
+  // ─── Section 1: Language (HIGHEST PRIORITY — top of prompt) ──────
+  sections.push(buildLanguageDirective(language));
+
+  // ─── Section 2: User's Creative Direction (HIGH PRIORITY) ────────
+  if (userPrompt.trim()) {
+    sections.push(
+      `---\nCREATIVE DIRECTION (follow these instructions carefully):\n${userPrompt.trim()}`
+    );
+  }
+
+  // ─── Section 3: Role + Core Rules ──────────────────────
   sections.push(
-    `You are a professional graphic designer creating a high-quality poster/creative.\n\n` +
+    `---\nYou are a professional graphic designer creating a high-quality poster/creative.\n\n` +
     `RULES:\n` +
     `1. Include ALL ${textFields.length} text element${textFields.length === 1 ? "" : "s"} listed below — every single one MUST appear in the final image.\n` +
     `2. Do NOT add any extra text, labels, or symbols beyond what is listed.\n` +
@@ -190,7 +212,7 @@ export function buildGenerationPrompt(input: PromptBuilderInput): string {
     );
   }
 
-  // ─── Section 2: ALL text fields (single list) ───────────
+  // ─── Section 4: ALL text fields (single list) ───────────
   const fieldLines: string[] = [
     `---\nTEXT ELEMENTS (${textFields.length} total — include ALL):\n`
   ];
@@ -220,7 +242,7 @@ export function buildGenerationPrompt(input: PromptBuilderInput): string {
 
   sections.push(fieldLines.join("\n"));
 
-  // ─── Section 3: Logo Instructions ──────────────────────────
+  // ─── Section 5: Logo Instructions ──────────────────────────
   if (hasLogo || logoFields.length > 0) {
     const logoPos = logoFields[0]?.position
       ? (POSITION_DESCRIPTIONS[logoFields[0].position] ?? "prominently")
@@ -233,18 +255,10 @@ export function buildGenerationPrompt(input: PromptBuilderInput): string {
     sections.push(`---\nNo logo. Do not add any logo, watermark, or brand mark.`);
   }
 
-  // ─── Section 4: Language + Quality ──────────────────────────
-  const styleParts: string[] = [`---\n${buildLanguageDirective(language)}`];
-
-  styleParts.push(
-    `\nProfessional poster quality. Maintain proper spacing between all text elements. Clean, legible typography.`
+  // ─── Section 6: Quality ──────────────────────────────────
+  sections.push(
+    `---\nProfessional poster quality. Maintain proper spacing between all text elements. Clean, legible typography.`
   );
-
-  if (userPrompt.trim()) {
-    styleParts.push(`\nCreative direction: ${userPrompt}`);
-  }
-
-  sections.push(styleParts.join("\n"));
 
   return sections.join("\n\n");
 }
@@ -258,7 +272,8 @@ export function buildGenerationPrompt(input: PromptBuilderInput): string {
  * Build a split prompt for Google Gemini image generation.
  *
  * Returns separate system instruction and user content.
- * Global language directive in system instruction, simple field list in user content.
+ * Language directive and creative direction in system instruction (higher priority).
+ * Field list in user content.
  */
 export function buildGeminiPrompt(input: PromptBuilderInput): GeminiPromptParts {
   const { userPrompt, fields, language, templateDescription, hasLogo, sourceImageCount = 0 } = input;
@@ -268,9 +283,28 @@ export function buildGeminiPrompt(input: PromptBuilderInput): GeminiPromptParts 
   const positionedFields = textFields.filter((f) => f.position);
   const unpositionedFields = textFields.filter((f) => !f.position);
 
-  // ─── System Instruction (rules & role) ──────────────────
+  // ─── System Instruction (rules & role — highest priority) ──────
   const systemParts: string[] = [
     `You are a professional graphic designer. Generate a high-quality poster image.`,
+  ];
+
+  // Language directive in system instruction (HIGHEST PRIORITY)
+  if (language !== "ENGLISH") {
+    systemParts.push(``, buildLanguageDirective(language));
+  } else {
+    systemParts.push(``, `LANGUAGE: English. All text must be in English.`);
+  }
+
+  // User's creative direction in system instruction (HIGH PRIORITY)
+  if (userPrompt.trim()) {
+    systemParts.push(
+      ``,
+      `CREATIVE DIRECTION (the user specifically requested this — follow carefully):`,
+      userPrompt.trim()
+    );
+  }
+
+  systemParts.push(
     ``,
     `Rules:`,
     `1. Include ALL ${textFields.length} text elements the user specifies — every single one must appear in the output.`,
@@ -281,12 +315,7 @@ export function buildGeminiPrompt(input: PromptBuilderInput): GeminiPromptParts 
     `6. Render ALL text clearly and legibly — no garbled, distorted, overlapping, or merged text.`,
     `7. Each text element must be fully readable and visually distinct from other elements.`,
     `8. Place positioned elements in their specified grid cells (3×3 grid: top/middle/bottom × left/center/right).`,
-  ];
-
-  // Language directive in system instruction (higher priority)
-  if (language !== "ENGLISH") {
-    systemParts.push(``, buildLanguageDirective(language));
-  }
+  );
 
   const systemInstruction = systemParts.join("\n");
 
@@ -331,11 +360,6 @@ export function buildGeminiPrompt(input: PromptBuilderInput): GeminiPromptParts 
     userParts.push(`\nDo not add any logo or watermark.`);
   }
 
-  // Creative direction
-  if (userPrompt.trim()) {
-    userParts.push(`\nCreative direction: ${userPrompt}`);
-  }
-
   return {
     systemInstruction,
     userContent: userParts.join("\n"),
@@ -353,6 +377,8 @@ export function buildGeminiPrompt(input: PromptBuilderInput): GeminiPromptParts 
  * Ideogram CANNOT handle structured prompts with section headers, bullet lists,
  * or all-caps rule blocks — it treats those as content to render visually.
  * Uses flowing sentences with simple field key+value references.
+ *
+ * PRIORITY ORDER for Ideogram: user instructions → language → fields → rules
  */
 export function buildIdeogramPrompt(input: PromptBuilderInput): string {
   const { userPrompt, fields, language, templateDescription, hasLogo, sourceImageCount = 0 } = input;
@@ -368,6 +394,14 @@ export function buildIdeogramPrompt(input: PromptBuilderInput): string {
     parts.push(userPrompt.trim());
   }
 
+  // Language instruction EARLY — second highest priority
+  if (language !== "ENGLISH") {
+    parts.push(
+      `IMPORTANT: All decorative text, greetings, and marketing copy must be written in ${langInfo.name} using ${langInfo.script} script. ` +
+      `Brand names, phone numbers, emails, URLs, addresses, and social media handles must stay exactly as written.`
+    );
+  }
+
   // Multiple reference images context
   if (sourceImageCount > 1) {
     parts.push(
@@ -381,14 +415,6 @@ export function buildIdeogramPrompt(input: PromptBuilderInput): string {
     parts.push(`Reference style: ${templateDescription}. Preserve the theme and event context from the reference.`);
   } else {
     parts.push(`Preserve the theme and event context visible in the reference image.`);
-  }
-
-  // Language instruction - single global directive
-  if (language !== "ENGLISH") {
-    parts.push(
-      `Translate decorative text, greetings, and marketing copy into ${langInfo.name} using ${langInfo.script} script. ` +
-      `Brand names, phone numbers, emails, URLs, addresses, and social media handles must stay exactly as written.`
-    );
   }
 
   // Text fields — flowing sentences with key+value
