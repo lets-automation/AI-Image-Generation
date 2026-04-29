@@ -13,6 +13,7 @@
     "clean": "rimraf dist"
   },
   "dependencies": {
+    "@asteasolutions/zod-to-openapi": "^7.3.4",
     "@ep/shared": "*",
     "@napi-rs/canvas": "^0.1.62",
     "@prisma/client": "^6.2.0",
@@ -32,8 +33,6 @@
     "pino-http": "^10.3.0",
     "razorpay": "^2.9.6",
     "sharp": "^0.33.0",
-    "swagger-jsdoc": "^6.2.8",
-    "swagger-ui-express": "^5.0.1",
     "uuid": "^11.0.0",
     "zod": "^3.24.0"
   },
@@ -45,8 +44,6 @@
     "@types/jsonwebtoken": "^9.0.7",
     "@types/multer": "^1.4.12",
     "@types/node": "^22.0.0",
-    "@types/swagger-jsdoc": "^6.0.4",
-    "@types/swagger-ui-express": "^4.1.8",
     "@types/uuid": "^10.0.0",
     "pino-pretty": "^13.0.0",
     "prisma": "^6.2.0",

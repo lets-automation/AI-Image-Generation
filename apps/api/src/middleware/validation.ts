@@ -1,4 +1,4 @@
-import type { Request, Response, NextFunction } from "express";
+import type { Request, Response, NextFunction, RequestHandler } from "express";
 import { ZodSchema, ZodError } from "zod";
 
 interface ValidationSchemas {
@@ -7,12 +7,18 @@ interface ValidationSchemas {
   query?: ZodSchema;
 }
 
+export type ValidatedRequestHandler = RequestHandler & {
+  __zodSchemas?: ValidationSchemas;
+};
+
 /**
  * Zod validation middleware factory.
  * Validates request body, params, and/or query against provided schemas.
+ * Schemas are attached to the returned handler via `__zodSchemas` so the
+ * OpenAPI generator can introspect them at startup.
  */
-export function validate(schemas: ValidationSchemas) {
-  return (req: Request, _res: Response, next: NextFunction): void => {
+export function validate(schemas: ValidationSchemas): ValidatedRequestHandler {
+  const handler: ValidatedRequestHandler = (req: Request, _res: Response, next: NextFunction): void => {
     const errors: ZodError[] = [];
 
     if (schemas.body) {
@@ -53,4 +59,6 @@ export function validate(schemas: ValidationSchemas) {
 
     next();
   };
+  handler.__zodSchemas = schemas;
+  return handler;
 }

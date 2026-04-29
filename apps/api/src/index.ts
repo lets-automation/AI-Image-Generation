@@ -8,12 +8,19 @@ import { globalLimiter } from "./middleware/rateLimiter.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 import { apiRoutes } from "./routes/index.js";
 import { initCloudinary } from "./config/cloudinary.js";
-import { swaggerSpec } from "./config/swagger.js";
+import { buildOpenApiSpec } from "./openapi/build-spec.js";
 
 const app = express();
 
 // ─── Trust Proxy (required behind Nginx/reverse proxy for rate limiting) ───
 app.set("trust proxy", 1);
+
+// OpenAPI spec is built lazily after all routes are mounted, then cached.
+let cachedOpenApiSpec: ReturnType<typeof buildOpenApiSpec> | null = null;
+function getOpenApiSpec() {
+  if (!cachedOpenApiSpec) cachedOpenApiSpec = buildOpenApiSpec(app);
+  return cachedOpenApiSpec;
+}
 
 // ─── API Documentation (before helmet so CSP doesn't block CDN) ───
 app.get("/api/v1/docs", (_req, res) => {
@@ -42,7 +49,7 @@ app.get("/api/v1/docs", (_req, res) => {
 });
 app.get("/api/v1/docs.json", (_req, res) => {
   res.setHeader("Content-Type", "application/json");
-  res.send(swaggerSpec);
+  res.send(getOpenApiSpec());
 });
 
 // ─── Security ───────────────────────────────────────────

@@ -74,7 +74,7 @@ export function optionalAuth(
  * Must be used AFTER authenticate middleware.
  */
 export function requireRole(...roles: UserRole[]) {
-  return (req: Request, _res: Response, next: NextFunction): void => {
+  const handler: any = (req: Request, _res: Response, next: NextFunction): void => {
     if (!req.userRole) {
       next(new UnauthorizedError());
       return;
@@ -87,6 +87,9 @@ export function requireRole(...roles: UserRole[]) {
 
     next();
   };
+  handler.__authType = "required";
+  handler.__requiredRoles = roles;
+  return handler;
 }
 
 /**
@@ -94,7 +97,7 @@ export function requireRole(...roles: UserRole[]) {
  * Ensures the user is either a native Admin OR possesses the exact string permission required.
  */
 export function requireAdminAccess(permission?: string) {
-  return (req: Request, _res: Response, next: NextFunction): void => {
+  const handler: any = (req: Request, _res: Response, next: NextFunction): void => {
     if (!req.userRole) {
       next(new UnauthorizedError());
       return;
@@ -128,4 +131,8 @@ export function requireAdminAccess(permission?: string) {
 
     next(new ForbiddenError());
   };
+  handler.__authType = "required";
+  handler.__adminAccess = true;
+  handler.__permission = permission;
+  return handler;
 }
