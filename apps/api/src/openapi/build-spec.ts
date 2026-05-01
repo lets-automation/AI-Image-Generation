@@ -227,8 +227,8 @@ export function buildOpenApiSpec(app: Express) {
         "Auto-generated from Express routes + Zod validators. Every registered route appears here automatically — no manual JSDoc required.",
     },
     servers: [
-      { url: "/api/v1", description: "Current host" },
-      { url: "https://aiimagegenerator.design/api/v1", description: "Production" },
+      { url: "/", description: "Current host" },
+      { url: "https://aiimagegenerator.design", description: "Production" },
     ],
   });
 }
