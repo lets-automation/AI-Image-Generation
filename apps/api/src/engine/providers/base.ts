@@ -19,8 +19,13 @@ export interface ProviderGenerateInput {
   systemInstruction?: string;
   /** Base/template image buffer — used as style reference for the AI */
   baseImageBuffer?: Buffer;
-  /** Logo image buffer — passed as additional reference image to the AI */
-  logoBuffer?: Buffer;
+  /**
+   * Image-type field buffers (logos, headshots, photos, etc.) passed as
+   * additional reference images to the AI. Order matches the order of
+   * IMAGE-type fields in `rawOptions.fields` so the prompt and the buffers
+   * stay aligned.
+   */
+  logoBuffers?: Buffer[];
   /**
    * Individual source image buffers from multi-image custom uploads.
    * When provided, OpenAI/Gemini send these as separate reference images

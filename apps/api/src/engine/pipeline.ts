@@ -331,7 +331,33 @@ export async function executePipeline(
       if (schemaType) return schemaType as OverlayField["fieldType"];
 
       const key = fieldKey.toLowerCase();
-      if (key.includes("logo") || key.includes("image")) return "IMAGE";
+
+      // Strong key signals for image-type fields. Broader than "logo"/"image"
+      // so keys like "sonphoto", "fatherphoto", "banner", "headshot" are caught
+      // when the schema lookup misses (e.g., custom uploads without a category).
+      if (
+        key.includes("logo") ||
+        key.includes("image") ||
+        key.includes("photo") ||
+        key.includes("picture") ||
+        key.includes("avatar") ||
+        key.includes("banner") ||
+        key.includes("thumbnail") ||
+        key.includes("headshot")
+      ) {
+        return "IMAGE";
+      }
+
+      // Value signals: URL pointing to an image file or a Cloudinary image upload.
+      // Must come BEFORE the generic URL check below — otherwise image URLs
+      // would be classified as "URL" and rendered as text by the AI.
+      if (
+        /^https?:\/\/[^\s]+\.(png|jpe?g|webp|gif|bmp|tiff?|svg|avif|heic|heif)(\?|#|$)/i.test(textValue) ||
+        /^https?:\/\/res\.cloudinary\.com\/[^\s]+\/image\/upload\//i.test(textValue)
+      ) {
+        return "IMAGE";
+      }
+
       if (key.includes("phone") || key.includes("mobile") || key.includes("tel")) return "PHONE";
       if (key.includes("email") || textValue.includes("@")) return "EMAIL";
       if (key.includes("url") || key.includes("website") || /^https?:\/\//i.test(textValue)) return "URL";

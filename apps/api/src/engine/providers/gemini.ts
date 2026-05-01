@@ -55,7 +55,11 @@ export class GeminiProvider extends BaseProvider {
       (input.params.model as string) ??
       "gemini-2.5-flash-image";
 
-    const hasReferenceImages = !!(input.baseImageBuffer || input.logoBuffer || (input.sourceImageBuffers && input.sourceImageBuffers.length > 0));
+    const hasReferenceImages = !!(
+      input.baseImageBuffer ||
+      (input.logoBuffers && input.logoBuffers.length > 0) ||
+      (input.sourceImageBuffers && input.sourceImageBuffers.length > 0)
+    );
     const mode = hasReferenceImages ? "image-to-image" : "text-to-image";
 
     logger.info(
@@ -122,13 +126,15 @@ export class GeminiProvider extends BaseProvider {
       });
     }
 
-    if (input.logoBuffer) {
-      parts.push({
-        inlineData: {
-          mimeType: "image/png",
-          data: input.logoBuffer.toString("base64"),
-        },
-      });
+    if (input.logoBuffers && input.logoBuffers.length > 0) {
+      for (const logoBuf of input.logoBuffers) {
+        parts.push({
+          inlineData: {
+            mimeType: "image/png",
+            data: logoBuf.toString("base64"),
+          },
+        });
+      }
     }
 
     // Add text prompt — prepend aspect ratio guidance since Gemini has no

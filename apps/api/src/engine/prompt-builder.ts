@@ -72,8 +72,12 @@ export interface PromptBuilderInput {
   language: Language;
   /** Template description from admin (optional) */
   templateDescription?: string;
-  /** Whether a logo image is provided */
-  hasLogo: boolean;
+  /**
+   * Whether at least one image-type field has a usable reference image.
+   * Retained for backwards compatibility — internal logic now derives image
+   * handling from the IMAGE-typed entries inside `fields`.
+   */
+  hasLogo?: boolean;
   /**
    * Number of individual source images from multi-image custom uploads.
    * When > 1, prompts describe multiple reference images so the model
@@ -172,7 +176,7 @@ function buildLanguageDirective(language: Language): string {
  * 6. Style quality (Section 6)
  */
 export function buildGenerationPrompt(input: PromptBuilderInput): string {
-  const { userPrompt, fields, language, templateDescription, hasLogo, sourceImageCount = 0 } = input;
+  const { userPrompt, fields, language, templateDescription, sourceImageCount = 0 } = input;
 
   const textFields = fields.filter((f) => f.fieldType !== "IMAGE");
   const logoFields = fields.filter((f) => f.fieldType === "IMAGE");
@@ -242,17 +246,38 @@ export function buildGenerationPrompt(input: PromptBuilderInput): string {
 
   sections.push(fieldLines.join("\n"));
 
-  // ─── Section 5: Logo Instructions ──────────────────────────
-  if (hasLogo || logoFields.length > 0) {
-    const logoPos = logoFields[0]?.position
-      ? (POSITION_DESCRIPTIONS[logoFields[0].position] ?? "prominently")
+  // ─── Section 5: Image-field Instructions ───────────────────
+  // Image fields (logos, headshots, photos) are sent as additional reference
+  // images to the AI. Each is described here so the model knows the role of
+  // every image and where to place it. Order matches the order the provider
+  // receives the buffers.
+  if (logoFields.length === 0) {
+    sections.push(`---\nNo additional reference images. Do not add any logo, watermark, or brand mark.`);
+  } else if (logoFields.length === 1) {
+    const f = logoFields[0];
+    const label = f.fieldKey.replace(/_/g, " ");
+    const pos = f.position
+      ? (POSITION_DESCRIPTIONS[f.position] ?? "prominently")
       : "prominently";
     sections.push(
-      `---\nLOGO: A logo image is provided as the second reference image. ` +
-      `Place it ${logoPos}, reproduced exactly as shown (same shape, colors, proportions). Include once only.`
+      `---\nADDITIONAL REFERENCE IMAGE — "${label}":\n` +
+      `Provided as an extra reference image alongside the style reference. ` +
+      `Place at ${pos}, preserving its visual identity exactly (same shape, colors, key features, and — for people — facial identity). ` +
+      `Include once only. Do not add any other logo, watermark, or brand mark.`
     );
   } else {
-    sections.push(`---\nNo logo. Do not add any logo, watermark, or brand mark.`);
+    const lines = logoFields.map((f, i) => {
+      const label = f.fieldKey.replace(/_/g, " ");
+      const pos = f.position
+        ? (POSITION_DESCRIPTIONS[f.position] ?? "naturally where it fits")
+        : "naturally where it fits";
+      return `${i + 1}. "${label}" — place at ${pos}, preserving its visual identity exactly (same shape, colors, key features, and — for people — facial identity).`;
+    });
+    sections.push(
+      `---\nADDITIONAL REFERENCE IMAGES (${logoFields.length}) — provided in this order, each as a separate reference image:\n` +
+      lines.join("\n") +
+      `\n\nIncorporate each one into the design accurately. Include each only once. Do not add any other logos, watermarks, or brand marks beyond these.`
+    );
   }
 
   // ─── Section 6: Quality ──────────────────────────────────
@@ -276,7 +301,7 @@ export function buildGenerationPrompt(input: PromptBuilderInput): string {
  * Field list in user content.
  */
 export function buildGeminiPrompt(input: PromptBuilderInput): GeminiPromptParts {
-  const { userPrompt, fields, language, templateDescription, hasLogo, sourceImageCount = 0 } = input;
+  const { userPrompt, fields, language, templateDescription, sourceImageCount = 0 } = input;
 
   const textFields = fields.filter((f) => f.fieldType !== "IMAGE");
   const logoFields = fields.filter((f) => f.fieldType === "IMAGE");
@@ -350,14 +375,31 @@ export function buildGeminiPrompt(input: PromptBuilderInput): GeminiPromptParts 
     );
   }
 
-  // Logo
-  if (hasLogo || logoFields.length > 0) {
-    const logoPos = logoFields[0]?.position
-      ? (POSITION_DESCRIPTIONS[logoFields[0].position] ?? "prominently")
-      : "prominently";
-    userParts.push(`\nInclude the provided logo at ${logoPos}, reproduced exactly as shown.`);
-  } else {
+  // Image-field references (logos, headshots, photos)
+  if (logoFields.length === 0) {
     userParts.push(`\nDo not add any logo or watermark.`);
+  } else if (logoFields.length === 1) {
+    const f = logoFields[0];
+    const label = f.fieldKey.replace(/_/g, " ");
+    const pos = f.position
+      ? (POSITION_DESCRIPTIONS[f.position] ?? "prominently")
+      : "prominently";
+    userParts.push(
+      `\nAdditional reference image — "${label}": place at ${pos}, preserving its visual identity exactly (shape, colors, key features, and — for people — facial identity). Include once only.`
+    );
+  } else {
+    userParts.push(`\nAdditional reference images (${logoFields.length}) — provided in this order:`);
+    for (let i = 0; i < logoFields.length; i++) {
+      const f = logoFields[i];
+      const label = f.fieldKey.replace(/_/g, " ");
+      const pos = f.position
+        ? (POSITION_DESCRIPTIONS[f.position] ?? "naturally where it fits")
+        : "naturally where it fits";
+      userParts.push(
+        `${i + 1}. "${label}" — place at ${pos}, preserving its visual identity exactly (shape, colors, key features, and — for people — facial identity).`
+      );
+    }
+    userParts.push(`Include each only once. Do not add any other logo or watermark.`);
   }
 
   return {
@@ -381,7 +423,7 @@ export function buildGeminiPrompt(input: PromptBuilderInput): GeminiPromptParts 
  * PRIORITY ORDER for Ideogram: user instructions → language → fields → rules
  */
 export function buildIdeogramPrompt(input: PromptBuilderInput): string {
-  const { userPrompt, fields, language, templateDescription, hasLogo, sourceImageCount = 0 } = input;
+  const { userPrompt, fields, language, templateDescription, sourceImageCount = 0 } = input;
   const langInfo = LANGUAGE_INFO[language] ?? LANGUAGE_INFO.ENGLISH;
 
   const textFields = fields.filter((f) => f.fieldType !== "IMAGE");
@@ -438,14 +480,32 @@ export function buildIdeogramPrompt(input: PromptBuilderInput): string {
     }
   }
 
-  // Logo
-  if (hasLogo || logoFields.length > 0) {
-    const logoPos = logoFields[0]?.position
-      ? (POSITION_DESCRIPTIONS[logoFields[0].position] ?? "prominently")
-      : "prominently";
-    parts.push(`Include the provided logo image at the ${logoPos}, reproduced exactly.`);
-  } else {
+  // Image-field references (logos, headshots, photos).
+  // Ideogram's API only accepts one reference image, so the actual buffers
+  // for these fields are not sent to it — but we still describe them in the
+  // prompt so the model attempts to include them faithfully.
+  if (logoFields.length === 0) {
     parts.push(`Do not add any logo, watermark, or brand mark.`);
+  } else if (logoFields.length === 1) {
+    const f = logoFields[0];
+    const label = f.fieldKey.replace(/_/g, " ");
+    const pos = f.position
+      ? (POSITION_DESCRIPTIONS[f.position] ?? "prominently")
+      : "prominently";
+    parts.push(
+      `Include the provided ${label} image at the ${pos}, reproduced exactly.`
+    );
+  } else {
+    const lines = logoFields.map((f) => {
+      const label = f.fieldKey.replace(/_/g, " ");
+      const pos = f.position
+        ? (POSITION_DESCRIPTIONS[f.position] ?? "naturally where it fits")
+        : "naturally where it fits";
+      return `${label} at the ${pos}`;
+    });
+    parts.push(
+      `Include the following reference images, each reproduced exactly: ${lines.join("; ")}.`
+    );
   }
 
   // Quality guard

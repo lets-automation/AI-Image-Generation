@@ -57,7 +57,11 @@ export class OpenAIProvider extends BaseProvider {
       ?? (input.params.size as string)
       ?? "1024x1024";
 
-    const hasReferenceImages = !!(input.baseImageBuffer || input.logoBuffer || (input.sourceImageBuffers && input.sourceImageBuffers.length > 0));
+    const hasReferenceImages = !!(
+      input.baseImageBuffer ||
+      (input.logoBuffers && input.logoBuffers.length > 0) ||
+      (input.sourceImageBuffers && input.sourceImageBuffers.length > 0)
+    );
 
     if (hasReferenceImages) {
       // Image-to-image: /images/edits (multipart form data)
@@ -184,13 +188,17 @@ export class OpenAIProvider extends BaseProvider {
       );
     }
 
-    // Add logo image
-    if (input.logoBuffer) {
-      formData.append(
-        "image[]",
-        new Blob([input.logoBuffer], { type: "image/png" }),
-        "logo.png"
-      );
+    // Add image-field buffers (logos, headshots, photos, etc.) as additional
+    // reference images. Each gets its own image[] entry so the model can
+    // reason about every one independently.
+    if (input.logoBuffers && input.logoBuffers.length > 0) {
+      for (let i = 0; i < input.logoBuffers.length; i++) {
+        formData.append(
+          "image[]",
+          new Blob([input.logoBuffers[i]], { type: "image/png" }),
+          `logo_${i + 1}.png`
+        );
+      }
     }
 
     const response = await fetch(`${this.baseUrl}/images/edits`, {

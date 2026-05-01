@@ -73,9 +73,9 @@ export async function renderEnhanced(
     templateDescription,
   } = options;
 
-  // Identify logo fields and non-logo (text) fields
-  const logoFields = fields.filter((f) => f.fieldType === "IMAGE");
-  const hasLogo = logoFields.length > 0;
+  // Identify image-type fields (logos, headshots, photos, etc.) and text fields
+  const imageFields = fields.filter((f) => f.fieldType === "IMAGE");
+  const textFields = fields.filter((f) => f.fieldType !== "IMAGE");
 
   // Step 1: Load the clean template image (style reference — no overlay)
   let templateBuffer: Buffer | undefined = baseImageBuffer;
@@ -87,23 +87,49 @@ export async function renderEnhanced(
     templateBuffer = Buffer.from(await response.arrayBuffer());
   }
 
-  // Step 2: Load logo image buffer (if any logo field has a URL)
-  let logoBuffer: Buffer | undefined;
-  for (const logoField of logoFields) {
-    const logoUrl = logoField.value;
-    if (!logoUrl || logoUrl.startsWith("blob:")) continue;
-    try {
-      const logoResponse = await fetch(logoUrl);
-      if (logoResponse.ok) {
-        const rawLogo = Buffer.from(await logoResponse.arrayBuffer());
-        // Ensure logo is PNG for API compatibility
-        logoBuffer = await sharp(rawLogo).png().toBuffer();
-        break; // Use the first valid logo
+  // Step 2: Load every image-field buffer in parallel. Drop any field whose
+  // URL is missing/unfetchable so the prompt only describes images we
+  // actually send to the provider — keeps prompt and buffers in lockstep.
+  const fetchResults = await Promise.all(
+    imageFields.map(async (field) => {
+      const url = field.value;
+      if (!url || url.startsWith("blob:")) return null;
+      try {
+        const res = await fetch(url);
+        if (!res.ok) {
+          logger.warn(
+            { url, status: res.status, fieldKey: field.fieldKey },
+            "Image-field fetch returned non-OK, skipping"
+          );
+          return null;
+        }
+        const raw = Buffer.from(await res.arrayBuffer());
+        const png = await sharp(raw).png().toBuffer();
+        return { field, buffer: png };
+      } catch (err) {
+        logger.warn(
+          { url, err, fieldKey: field.fieldKey },
+          "Failed to fetch image-field URL, skipping"
+        );
+        return null;
       }
-    } catch (err) {
-      logger.warn({ logoUrl, err }, "Failed to fetch logo image, proceeding without logo");
+    })
+  );
+
+  const validImageFields: OverlayField[] = [];
+  const logoBuffers: Buffer[] = [];
+  for (const r of fetchResults) {
+    if (r) {
+      validImageFields.push(r.field);
+      logoBuffers.push(r.buffer);
     }
   }
+
+  // Effective field set: keep all text fields, replace image fields with the
+  // subset we successfully fetched. The prompt builder will describe these
+  // in the same order the provider receives the buffers.
+  const effectiveFields: OverlayField[] = [...textFields, ...validImageFields];
+  const hasLogo = validImageFields.length > 0;
 
   // Step 4: Send template + logo + prompt to AI provider
   try {
@@ -114,7 +140,14 @@ export async function renderEnhanced(
     // - Gemini: split into systemInstruction + userContent (leverages Gemini's architecture)
     // - Ideogram: concise natural-language prompt (can't handle structured formatting)
     const sourceImageCount = sourceImageBuffers?.length ?? 0;
-    const promptInput = { userPrompt: prompt, fields, language, templateDescription, hasLogo, sourceImageCount };
+    const promptInput = {
+      userPrompt: prompt,
+      fields: effectiveFields,
+      language,
+      templateDescription,
+      hasLogo,
+      sourceImageCount,
+    };
 
     let aiPrompt: string;
     let aiSystemInstruction: string | undefined;
@@ -142,7 +175,7 @@ export async function renderEnhanced(
       prompt: aiPrompt,
       systemInstruction: aiSystemInstruction,
       baseImageBuffer: templateBuffer,
-      logoBuffer,
+      logoBuffers: logoBuffers.length > 0 ? logoBuffers : undefined,
       sourceImageBuffers,
       width: imageWidth,
       height: imageHeight,
@@ -153,7 +186,7 @@ export async function renderEnhanced(
       },
       rawOptions: {
         userPrompt: prompt,
-        fields,
+        fields: effectiveFields,
         language,
         templateDescription,
       },
