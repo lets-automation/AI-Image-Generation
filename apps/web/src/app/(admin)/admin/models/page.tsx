@@ -62,12 +62,13 @@ const KNOWN_PROVIDERS: Record<string, {
   openai: {
     label: "OpenAI",
     models: [
-      { id: "gpt-image-1-mini", label: "GPT Image 1 Mini (fast)" },
-      { id: "gpt-image-1", label: "GPT Image 1 (balanced)" },
+      { id: "gpt-image-2", label: "GPT Image 2 (best text rendering, multilingual)" },
       { id: "gpt-image-1.5", label: "GPT Image 1.5 (if enabled on your account)" },
+      { id: "gpt-image-1", label: "GPT Image 1 (balanced)" },
+      { id: "gpt-image-1-mini", label: "GPT Image 1 Mini (fast)" },
     ],
     docs: "https://platform.openai.com/docs/guides/images",
-    configHints: "Config fields: quality (low/medium/high). Template image is used as style reference via /images/generations.",
+    configHints: "Config fields: quality (low/medium/high). gpt-image-2 has improved text rendering, multilingual support, and processes reference images at high fidelity automatically. Template image is used as style reference via /images/edits.",
   },
   ideogram: {
     label: "Ideogram",
@@ -575,7 +576,7 @@ export default function AdminModelsPage() {
           <div className="mt-3 rounded bg-muted/50 p-3">
             <p className="font-medium text-foreground mb-1">Available providers:</p>
             <ul className="list-inside list-disc space-y-0.5">
-              <li><strong>OpenAI</strong> — Best overall quality. Uses /images/generations with template as style reference.</li>
+              <li><strong>OpenAI</strong> — Best overall quality. <strong>gpt-image-2</strong> (Apr 2026) brings significantly improved text rendering, multilingual character support (Devanagari, Arabic, CJK), and better layout adherence. Uses /images/edits with template as style reference.</li>
               <li><strong>Ideogram</strong> — Best text rendering accuracy. Uses /remix with template as style reference. Ideal for phone numbers and multi-language text.</li>
               <li><strong>Google Gemini</strong> — Fast and efficient. Uses generateContent with image modality. Good balance of speed, quality, and cost.</li>
             </ul>
