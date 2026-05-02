@@ -13,9 +13,12 @@ import type { QualityTier } from "@ep/shared";
  *   - Credit cost
  *
  * Admin configures models via the admin UI:
- *   BASIC:    e.g. gpt-image-1-mini   — fast, budget-friendly
- *   STANDARD: e.g. gpt-image-1        — balanced quality
- *   PREMIUM:  e.g. gpt-image-1.5      — highest quality
+ *   BASIC:    e.g. gpt-image-2 (low)     — fast, budget-friendly
+ *   STANDARD: e.g. gpt-image-2 (medium)  — balanced quality
+ *   PREMIUM:  e.g. gpt-image-2 (high)    — highest quality
+ *
+ * Legacy gpt-image-1 family (mini/1/1.5) is still supported for
+ * existing DB-configured rows; quality tier mapping is unchanged.
  *
  * The overlay renderer is only used as an emergency fallback
  * when cost guard blocks all AI tiers.

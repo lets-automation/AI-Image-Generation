@@ -1,12 +1,15 @@
 version: "3.9"
 
 services:
+  # Host ports remapped (5433, 6380) to avoid colliding with other local
+  # services on this machine that already bind 5432/6379 (e.g. workforce360).
+  # Container-internal ports remain the defaults (5432, 6379).
   postgres:
     image: postgres:16-alpine
     container_name: ep-postgres
     restart: unless-stopped
     ports:
-      - "5432:5432"
+      - "5433:5432"
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -24,7 +27,7 @@ services:
     container_name: ep-redis
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      - "6380:6379"
     command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
     volumes:
       - redis_data:/data

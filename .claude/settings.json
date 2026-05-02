@@ -53,7 +53,8 @@
       "Bash(grep -ri \"limited.*time\\\\|offer\\\\|discount\\\\|sale\\\\|exclusive\\\\|special\\\\|promotion\" 'e:/VS Code/EP-Product/apps/api/src/engine' --include=*.ts)",
       "Bash(grep -r \"inject\\\\|append\\\\|prepend\\\\|add.*prompt\\\\|add.*text\" 'e:/VS Code/EP-Product/apps/api/src' --include=*.ts)",
       "Read(//e//**)",
-      "Bash(xargs grep:*)"
+      "Bash(xargs grep:*)",
+      "WebSearch"
     ],
     "additionalDirectories": [
       "e:\\VS Code\\EP-Product\\apps\\api\\src\\engine\\providers"

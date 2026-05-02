@@ -18,9 +18,12 @@ import type { QualityTier } from "@ep/shared";
  * All configuration (model name, quality, size) is DB-driven via ModelPricing.config.
  *
  * The admin configures model entries like:
- *   BASIC:    { model: "gpt-image-1-mini",  quality: "low",    size: "1024x1024" }
- *   STANDARD: { model: "gpt-image-1",       quality: "medium", size: "1536x1024" }
- *   PREMIUM:  { model: "gpt-image-1.5",     quality: "high",   size: "1792x1024" }
+ *   BASIC:    { model: "gpt-image-2",       quality: "low",    size: "1024x1024" }
+ *   STANDARD: { model: "gpt-image-2",       quality: "medium", size: "1536x1024" }
+ *   PREMIUM:  { model: "gpt-image-2",       quality: "high",   size: "1536x1024" }
+ *
+ * Legacy gpt-image-1 family (gpt-image-1-mini, gpt-image-1, gpt-image-1.5)
+ * is still fully supported — model ID is passed through verbatim from DB config.
  *
  * Two generation paths (both using admin-configured model):
  *   1. /v1/images/generations — text-to-image (no reference images)
@@ -122,8 +125,9 @@ export class OpenAIProvider extends BaseProvider {
    *   - prompt: text instructions
    *   - model, quality, size, n
    *
-   * This replaces the old hardcoded gpt-4o Responses API path.
-   * Now uses the admin-configured model (e.g. gpt-image-1.5).
+   * Uses the admin-configured model (e.g. gpt-image-2 or legacy gpt-image-1.5).
+   * gpt-image-2 always processes reference images at high fidelity automatically
+   * (no input_fidelity parameter needed).
    */
   private async generateWithEdits(
     input: ProviderGenerateInput,
