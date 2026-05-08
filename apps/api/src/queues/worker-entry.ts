@@ -15,6 +15,7 @@ import { connectDatabase, disconnectDatabase } from "../config/database.js";
 import { disconnectRedis } from "../config/redis.js";
 import { initCloudinary } from "../config/cloudinary.js";
 import { startGenerationWorker, stopGenerationWorker } from "./generation.worker.js";
+import { startVideoGenerationWorker, stopVideoGenerationWorker } from "./video-generation.worker.js";
 import { scheduleReconciliation, startReconciliationWorker } from "./subscription-reconciliation.js";
 import type { Worker } from "bullmq";
 import { logger } from "../utils/logger.js";
@@ -34,6 +35,7 @@ async function main() {
 
   // Start workers
   startGenerationWorker();
+  startVideoGenerationWorker();
 
   // Start reconciliation worker + schedule daily job
   let reconciliationWorker: Worker | null = null;
@@ -50,6 +52,7 @@ async function main() {
 
     try {
       await stopGenerationWorker();
+      await stopVideoGenerationWorker();
       if (reconciliationWorker) {
         await reconciliationWorker.close();
       }

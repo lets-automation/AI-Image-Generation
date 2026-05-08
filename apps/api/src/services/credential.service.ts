@@ -20,6 +20,7 @@ const CREDENTIAL_ENV_MAP: Record<string, keyof typeof config> = {
   openai_api_key: "OPENAI_API_KEY",
   ideogram_api_key: "IDEOGRAM_API_KEY",
   gemini_api_key: "GEMINI_API_KEY",
+  seedance_api_key: "SEEDANCE_API_KEY",
   razorpay_key_id: "RAZORPAY_KEY_ID",
   razorpay_key_secret: "RAZORPAY_KEY_SECRET",
   razorpay_webhook_secret: "RAZORPAY_WEBHOOK_SECRET",
@@ -28,6 +29,7 @@ const CREDENTIAL_ENV_MAP: Record<string, keyof typeof config> = {
   apple_bundle_id: "APPLE_BUNDLE_ID",
   apple_private_key: "APPLE_PRIVATE_KEY",
   apple_environment: "APPLE_ENVIRONMENT",
+  apple_sign_in_client_id: "APPLE_SIGN_IN_CLIENT_ID",
 };
 
 /** Set of valid credential keys (for allowlist validation) */
@@ -39,6 +41,7 @@ export const CREDENTIAL_LABELS: Record<string, { label: string; group: string }>
   openai_api_key: { label: "OpenAI API Key", group: "ai" },
   ideogram_api_key: { label: "Ideogram API Key", group: "ai" },
   gemini_api_key: { label: "Google Gemini API Key", group: "ai" },
+  seedance_api_key: { label: "Seedance (BytePlus ModelArk) API Key", group: "ai" },
   razorpay_key_id: { label: "Razorpay Key ID", group: "razorpay" },
   razorpay_key_secret: { label: "Razorpay Key Secret", group: "razorpay" },
   razorpay_webhook_secret: { label: "Razorpay Webhook Secret", group: "razorpay" },
@@ -47,6 +50,7 @@ export const CREDENTIAL_LABELS: Record<string, { label: string; group: string }>
   apple_bundle_id: { label: "Apple Bundle ID", group: "apple" },
   apple_private_key: { label: "Apple Private Key", group: "apple" },
   apple_environment: { label: "Apple Environment", group: "apple" },
+  apple_sign_in_client_id: { label: "Apple Sign-In Client ID", group: "apple" },
 };
 
 // ─── In-memory cache (avoids hitting DB on every API call) ──

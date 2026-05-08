@@ -110,6 +110,11 @@ enum ShowcaseStatus {
   REJECTED
 }
 
+enum JobType {
+  IMAGE
+  VIDEO
+}
+
 // ─── MODELS ───────────────────────────────────────────────
 
 model User {
@@ -117,6 +122,7 @@ model User {
   email         String    @unique
   phone         String?   @unique
   googleId      String?   @unique
+  appleId       String?   @unique
   passwordHash  String
   name          String
   role          UserRole  @default(USER)
@@ -262,6 +268,7 @@ model Generation {
   id              String           @id @default(cuid())
   userId          String
   templateId      String?
+  jobType         JobType          @default(IMAGE)
   contentType     ContentType
   qualityTier     QualityTier
   language        String
@@ -289,6 +296,12 @@ model Generation {
   batchId         String?
   resultImageUrl  String?
   resultPublicId  String?
+  // Video-only fields (null for IMAGE jobs).
+  // videoResolution stores the rendered resolution code: "P720" | "P1080".
+  videoDurationSec    Int?
+  videoResolution     String?
+  resultVideoUrl      String?
+  resultVideoPublicId String?
   errorMessage    String?
   jobId           String?
   processingMs    Int?
@@ -302,6 +315,7 @@ model Generation {
 
   @@index([userId])
   @@index([userId, status])
+  @@index([userId, jobType])
   @@index([status])
   @@index([isPublic, status])
   @@index([showcaseStatus])

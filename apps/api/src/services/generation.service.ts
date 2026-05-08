@@ -378,14 +378,16 @@ export class GenerationService {
       limit?: number;
       status?: string;
       contentType?: string;
+      jobType?: "IMAGE" | "VIDEO";
     } = {}
   ) {
-    const { page = 1, limit = 20, status, contentType } = options;
+    const { page = 1, limit = 20, status, contentType, jobType } = options;
     const skip = (page - 1) * limit;
 
     const where: Record<string, unknown> = { userId };
     if (status) where.status = status;
     if (contentType) where.contentType = contentType;
+    if (jobType) where.jobType = jobType;
 
     const [generations, total] = await Promise.all([
       prisma.generation.findMany({
@@ -513,6 +515,9 @@ export class GenerationService {
 
   /**
    * Get current generation status (for SSE polling).
+   *
+   * Returns both image and video result URLs — only one will be populated
+   * depending on `jobType`. Frontend picks based on jobType.
    */
   async getStatus(generationId: string, userId: string) {
     const generation = await prisma.generation.findUnique({
@@ -520,12 +525,23 @@ export class GenerationService {
       select: {
         id: true,
         userId: true,
+        jobType: true,
         status: true,
         resultImageUrl: true,
+        resultVideoUrl: true,
         errorMessage: true,
         processingMs: true,
-      },
-    });
+      } as any,
+    }) as
+      | (Record<string, unknown> & {
+          userId: string;
+          status: string;
+          jobType: "IMAGE" | "VIDEO";
+          resultImageUrl: string | null;
+          resultVideoUrl: string | null;
+          errorMessage: string | null;
+        })
+      | null;
 
     if (!generation || generation.userId !== userId) {
       throw new NotFoundError("Generation");
@@ -551,7 +567,9 @@ export class GenerationService {
     return {
       status: generation.status,
       progress,
+      jobType: generation.jobType,
       resultImageUrl: generation.resultImageUrl,
+      resultVideoUrl: generation.resultVideoUrl,
       errorMessage: generation.errorMessage,
     };
   }
@@ -683,10 +701,31 @@ export class GenerationService {
   }
 
   private formatResponse(generation: Record<string, unknown>) {
+    // Surface partial-success state (set by the video pipeline when a later
+    // clip fails after at least one earlier clip succeeded). Read from
+    // providerConfig — the pipeline writes flags there. Kept out of the
+    // pipeline columns since it's mostly video-flow metadata.
+    const cfg =
+      generation.providerConfig && typeof generation.providerConfig === "object"
+        ? (generation.providerConfig as Record<string, unknown>)
+        : null;
+    const partial = Boolean(cfg?.partial);
+    const partialReason =
+      typeof cfg?.partialReason === "string" ? (cfg.partialReason as string) : null;
+    const requestedDurationSec =
+      typeof cfg?.requestedDurationSec === "number"
+        ? (cfg.requestedDurationSec as number)
+        : null;
+    const refundedCredits =
+      typeof cfg?.refundedCredits === "number"
+        ? (cfg.refundedCredits as number)
+        : null;
+
     return {
       id: generation.id,
       batchId: generation.batchId ?? null,
       status: generation.status,
+      jobType: generation.jobType ?? "IMAGE",
       qualityTier: generation.qualityTier,
       language: generation.language,
       contentType: generation.contentType,
@@ -696,6 +735,16 @@ export class GenerationService {
       orientation: generation.orientation ?? null,
       jobId: generation.jobId ?? null,
       resultImageUrl: generation.resultImageUrl ?? null,
+      resultVideoUrl: generation.resultVideoUrl ?? null,
+      videoDurationSec: generation.videoDurationSec ?? null,
+      videoResolution: generation.videoResolution ?? null,
+      prompt: generation.prompt ?? null,
+      baseImageUrl: generation.baseImageUrl ?? null,
+      templateId: generation.templateId ?? null,
+      partial,
+      partialReason,
+      requestedDurationSec,
+      refundedCredits,
       errorMessage: generation.errorMessage ?? null,
       processingMs: generation.processingMs ?? null,
       createdAt: generation.createdAt instanceof Date

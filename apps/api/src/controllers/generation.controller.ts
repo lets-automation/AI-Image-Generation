@@ -75,6 +75,7 @@ export class GenerationController {
         limit?: number;
         status?: string;
         contentType?: string;
+        jobType?: "IMAGE" | "VIDEO";
       } | undefined;
 
       const result = await generationService.list(req.userId!, {
@@ -82,6 +83,7 @@ export class GenerationController {
         limit: query?.limit,
         status: query?.status,
         contentType: query?.contentType,
+        jobType: query?.jobType,
       });
 
       res.json({ success: true, ...result });
@@ -263,7 +265,9 @@ export class GenerationController {
         }
       });
 
-      // Timeout after 5 minutes
+      // Timeout after 11 minutes — long enough for the worst-case video
+      // pipeline (2 × 15s clips at PREMIUM 1080p ≈ 8-10 min upstream + stitch + upload).
+      // Image jobs finish well within this window; this is just a safety net.
       setTimeout(() => {
         clearInterval(interval);
         if (redisSub) {
@@ -272,7 +276,7 @@ export class GenerationController {
         }
         res.write(`data: ${JSON.stringify({ status: "TIMEOUT", progress: 0 })}\n\n`);
         res.end();
-      }, 5 * 60 * 1000);
+      }, 11 * 60 * 1000);
     } catch (err) {
       next(err);
     }

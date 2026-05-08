@@ -7,6 +7,7 @@ import {
   registerSchema,
   loginSchema,
   refreshTokenSchema,
+  appleLoginSchema,
 } from "@ep/shared";
 
 const router = Router();
@@ -29,6 +30,13 @@ router.post(
   "/google",
   authLimiter,
   authController.googleLogin.bind(authController)
+);
+
+router.post(
+  "/apple",
+  authLimiter,
+  validate({ body: appleLoginSchema }),
+  authController.appleLogin.bind(authController)
 );
 
 router.post(

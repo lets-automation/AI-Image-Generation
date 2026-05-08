@@ -1,0 +1,6 @@
+-- Historical migration placeholder.
+--
+-- This migration is recorded as applied in existing databases, but the folder
+-- was missing from the repository. The current schema already contains the
+-- content-type changes this migration represented, so this file is intentionally
+-- a no-op for fresh environments.

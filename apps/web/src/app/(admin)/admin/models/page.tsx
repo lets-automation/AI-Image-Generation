@@ -23,7 +23,7 @@ import {
 import {
   Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Plus, MoreHorizontal, Pencil, Power, Trash2, Info, HelpCircle, KeyRound, Save, Eye, EyeOff } from "lucide-react";
+import { Plus, MoreHorizontal, Pencil, Power, Trash2, Info, HelpCircle, KeyRound, Save, Eye, EyeOff, Image as ImageGenIcon, Video as VideoGenIcon } from "lucide-react";
 
 interface ModelPricing {
   id: string;
@@ -92,16 +92,34 @@ const KNOWN_PROVIDERS: Record<string, {
     docs: "https://ai.google.dev/gemini-api/docs/image-generation",
     configHints: "Config fields: costCents (provider cost). Uses generateContent with responseModalities: IMAGE. Supports reference images natively via multimodal input.",
   },
+  seedance: {
+    label: "Seedance (BytePlus)",
+    models: [
+      { id: "dreamina-seedance-2-0-260128", label: "Seedance 2.0 Pro — 720p / 1080p (BytePlus)" },
+      { id: "dreamina-seedance-2-0-fast-260128", label: "Seedance 2.0 Fast — 720p only (BytePlus)" },
+      // Volcengine-region (China) IDs use the doubao- prefix; same models, different ARK host.
+      { id: "doubao-seedance-2-0-260128", label: "Seedance 2.0 Pro — Volcengine (China region)" },
+      { id: "doubao-seedance-2-0-fast-260128", label: "Seedance 2.0 Fast — Volcengine (China region)" },
+    ],
+    docs: "https://docs.byteplus.com/en/docs/ModelArk/1520757",
+    configHints: "VIDEO model. Credit cost is per 15-second clip — a 30s video bills 2× this row. Resolution comes from this row's config (720p / 1080p). Requires SEEDANCE_API_KEY and an active resource pack on BytePlus ModelArk.",
+  },
 };
 
-/** Structured config fields for AI image generation */
+/** Provider names whose ModelPricing rows drive video generation, not image. */
+const VIDEO_PROVIDERS = new Set(["seedance"]);
+
+/** Structured config fields for AI image / video generation */
 interface ModelConfig {
   // OpenAI fields
   quality: string;
   // Ideogram fields
   style_type: string;
   image_weight: number;
-  // Common — stored as cents in DB, displayed as USD in UI
+  // Seedance video fields
+  resolution: "720p" | "1080p";
+  // Common — stored as cents in DB, displayed as USD in UI.
+  // For video models this represents the per-15s-clip provider cost.
   costUsd: number;
 }
 
@@ -118,12 +136,34 @@ const TIER_IMAGE_WEIGHT_DEFAULTS: Record<string, number> = {
   PREMIUM: 70,
 };
 
+/** Default Seedance resolution per tier — matches SEEDANCE_TIER_MAP in @ep/shared */
+const TIER_VIDEO_RESOLUTION_DEFAULTS: Record<string, "720p" | "1080p"> = {
+  BASIC: "720p",
+  STANDARD: "720p",
+  PREMIUM: "1080p",
+};
+
+/** Default per-15s USD cost from BytePlus pricing — admin can override */
+const TIER_VIDEO_COST_DEFAULTS: Record<string, number> = {
+  BASIC: 2.4,    // Seedance Fast 720p × 15s = $0.16/s × 15
+  STANDARD: 3.0, // Seedance Pro 720p × 15s = $0.20/s × 15
+  PREMIUM: 7.5,  // Seedance Pro 1080p × 15s = $0.50/s × 15
+};
+
+/** Default per-15s credit cost — pipeline scales linearly for 30s */
+const TIER_VIDEO_CREDIT_DEFAULTS: Record<string, number> = {
+  BASIC: 25,
+  STANDARD: 30,
+  PREMIUM: 75,
+};
+
 function configToStructured(config: Record<string, unknown> | null, tier: string): ModelConfig {
   const costCents = (config?.costCents as number) ?? 8;
   return {
     quality: (config?.quality as string) ?? TIER_QUALITY_DEFAULTS[tier] ?? "medium",
     style_type: (config?.style_type as string) ?? TIER_STYLE_DEFAULTS[tier] ?? "DESIGN",
     image_weight: (config?.image_weight as number) ?? TIER_IMAGE_WEIGHT_DEFAULTS[tier] ?? 64,
+    resolution: (config?.resolution as "720p" | "1080p") ?? TIER_VIDEO_RESOLUTION_DEFAULTS[tier] ?? "720p",
     costUsd: costCents / 100,
   };
 }
@@ -139,6 +179,12 @@ function structuredToConfig(cfg: ModelConfig, provider: string): Record<string, 
   }
   if (provider === "gemini") {
     return {
+      costCents,
+    };
+  }
+  if (provider === "seedance") {
+    return {
+      resolution: cfg.resolution,
       costCents,
     };
   }
@@ -173,6 +219,7 @@ export default function AdminModelsPage() {
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
   // Form state
+  const [mediaType, setMediaType] = useState<"IMAGE" | "VIDEO">("IMAGE");
   const [qualityTier, setQualityTier] = useState<"BASIC" | "STANDARD" | "PREMIUM">("STANDARD");
   const [providerName, setProviderName] = useState("");
   const [modelId, setModelId] = useState("");
@@ -180,7 +227,11 @@ export default function AdminModelsPage() {
   const [creditCost, setCreditCost] = useState(5);
   const [priority, setPriority] = useState(0);
   const [modelConfig, setModelConfig] = useState<ModelConfig>({
-    quality: "medium", style_type: "DESIGN", image_weight: TIER_IMAGE_WEIGHT_DEFAULTS.STANDARD, costUsd: 0.08,
+    quality: "medium",
+    style_type: "DESIGN",
+    image_weight: TIER_IMAGE_WEIGHT_DEFAULTS.STANDARD,
+    resolution: "720p",
+    costUsd: 0.08,
   });
 
   const load = useCallback(async () => {
@@ -235,19 +286,29 @@ export default function AdminModelsPage() {
     }
   }
 
-  // Auto-apply tier defaults when tier changes
+  // Auto-apply tier defaults when tier (or provider) changes for new entries.
+  // Provider-aware so picking "seedance" suggests sane video defaults instead
+  // of leaving the per-15s cost field at the image-flavored 0.08 USD.
   useEffect(() => {
-    if (!editId) {
-      setModelConfig((prev) => ({
-        ...prev,
-        quality: TIER_QUALITY_DEFAULTS[qualityTier] ?? "medium",
-        style_type: TIER_STYLE_DEFAULTS[qualityTier] ?? "DESIGN",
-        image_weight: TIER_IMAGE_WEIGHT_DEFAULTS[qualityTier] ?? 64,
-      }));
+    if (editId) return;
+    const isVideo = VIDEO_PROVIDERS.has(providerName.toLowerCase());
+    setModelConfig((prev) => ({
+      ...prev,
+      quality: TIER_QUALITY_DEFAULTS[qualityTier] ?? "medium",
+      style_type: TIER_STYLE_DEFAULTS[qualityTier] ?? "DESIGN",
+      image_weight: TIER_IMAGE_WEIGHT_DEFAULTS[qualityTier] ?? 64,
+      resolution: TIER_VIDEO_RESOLUTION_DEFAULTS[qualityTier] ?? "720p",
+      costUsd: isVideo
+        ? (TIER_VIDEO_COST_DEFAULTS[qualityTier] ?? 3.0)
+        : prev.costUsd,
+    }));
+    if (isVideo) {
+      setCreditCost(TIER_VIDEO_CREDIT_DEFAULTS[qualityTier] ?? 30);
     }
-  }, [qualityTier, editId]);
+  }, [qualityTier, providerName, editId]);
 
   function resetForm() {
+    setMediaType("IMAGE");
     setQualityTier("STANDARD");
     setProviderName("");
     setModelId("");
@@ -255,7 +316,11 @@ export default function AdminModelsPage() {
     setCreditCost(5);
     setPriority(0);
     setModelConfig({
-      quality: "medium", style_type: "DESIGN", image_weight: TIER_IMAGE_WEIGHT_DEFAULTS.STANDARD, costUsd: 0.08,
+      quality: "medium",
+      style_type: "DESIGN",
+      image_weight: TIER_IMAGE_WEIGHT_DEFAULTS.STANDARD,
+      resolution: "720p",
+      costUsd: 0.08,
     });
     setEditId(null);
     setShowForm(false);
@@ -263,6 +328,7 @@ export default function AdminModelsPage() {
 
   function startEdit(m: ModelPricing) {
     setEditId(m.id);
+    setMediaType(VIDEO_PROVIDERS.has(m.providerName.toLowerCase()) ? "VIDEO" : "IMAGE");
     setQualityTier(m.qualityTier);
     setProviderName(m.providerName);
     setModelId(m.modelId);
@@ -271,6 +337,27 @@ export default function AdminModelsPage() {
     setModelConfig(configToStructured(m.config, m.qualityTier));
     setShowForm(true);
   }
+
+  /**
+   * When admin switches the Image / Video tab on a NEW row, clear the
+   * provider/model selection so the dropdown only shows providers that
+   * match the selected media type.
+   */
+  function handleMediaTypeChange(next: "IMAGE" | "VIDEO") {
+    if (editId) return; // mediaType is read-only when editing — provider can't change
+    setMediaType(next);
+    setProviderName("");
+    setModelId("");
+    setCustomModelId("");
+  }
+
+  /** Providers visible in the dropdown for the currently-selected tab. */
+  const providersForMediaType = Object.entries(KNOWN_PROVIDERS).filter(
+    ([key]) =>
+      mediaType === "VIDEO"
+        ? VIDEO_PROVIDERS.has(key)
+        : !VIDEO_PROVIDERS.has(key)
+  );
 
   async function handleSubmit() {
     if (!providerName.trim()) {
@@ -373,24 +460,35 @@ export default function AdminModelsPage() {
       header: "Config",
       cell: (row) => {
         const c = row.config;
-        if (!c) return <span className="text-muted-foreground">-</span>;
+        const isVideo = VIDEO_PROVIDERS.has(row.providerName.toLowerCase());
         return (
           <div className="flex flex-wrap gap-1">
-            {c.quality != null && (
+            {isVideo && (
+              <Badge variant="default" className="bg-purple-100 text-purple-800 text-[10px] py-0">
+                VIDEO
+              </Badge>
+            )}
+            {c?.resolution != null && (
+              <Badge variant="outline" className="text-[10px] py-0">
+                {String(c.resolution)}
+              </Badge>
+            )}
+            {c?.quality != null && (
               <Badge variant="outline" className="text-[10px] py-0">
                 {String(c.quality)}
               </Badge>
             )}
-            {c.style_type != null && (
+            {c?.style_type != null && (
               <Badge variant="outline" className="text-[10px] py-0">
                 {String(c.style_type)}
               </Badge>
             )}
-            {c.image_weight != null && (
+            {c?.image_weight != null && (
               <Badge variant="outline" className="text-[10px] py-0">
                 wt:{String(c.image_weight)}
               </Badge>
             )}
+            {!c && !isVideo && <span className="text-muted-foreground">-</span>}
           </div>
         );
       },
@@ -398,12 +496,17 @@ export default function AdminModelsPage() {
     {
       key: "cost",
       header: "Cost",
-      cell: (row) => (
-        <span>
-          <span className="font-semibold">{row.creditCost}</span>
-          <span className="ml-1 text-xs text-muted-foreground">credits</span>
-        </span>
-      ),
+      cell: (row) => {
+        const isVideo = VIDEO_PROVIDERS.has(row.providerName.toLowerCase());
+        return (
+          <span>
+            <span className="font-semibold">{row.creditCost}</span>
+            <span className="ml-1 text-xs text-muted-foreground">
+              {isVideo ? "credits / 15s" : "credits"}
+            </span>
+          </span>
+        );
+      },
     },
     {
       key: "status",
@@ -593,12 +696,32 @@ export default function AdminModelsPage() {
         title={editId ? "Edit Model Pricing" : "New Model Pricing"}
         description={editId
           ? "Update the pricing and AI configuration for this model."
-          : "Add a new AI provider and model for image generation."
+          : mediaType === "VIDEO"
+            ? "Add a new video provider (Seedance) for image-to-video generation."
+            : "Add a new AI image provider for poster generation."
         }
         onSubmit={handleSubmit}
         submitLabel={editId ? "Update Configuration" : "Create Configuration"}
         maxWidth="sm:max-w-[600px]"
       >
+        {/* Media-type tabs — image vs video. Locked when editing since the
+            provider (which determines media type) can't change on an existing row. */}
+        <Tabs
+          value={mediaType}
+          onValueChange={(v) => handleMediaTypeChange(v as "IMAGE" | "VIDEO")}
+        >
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="IMAGE" disabled={!!editId && mediaType !== "IMAGE"}>
+              <ImageGenIcon className="mr-1.5 h-3.5 w-3.5" />
+              Image generation
+            </TabsTrigger>
+            <TabsTrigger value="VIDEO" disabled={!!editId && mediaType !== "VIDEO"}>
+              <VideoGenIcon className="mr-1.5 h-3.5 w-3.5" />
+              Video generation
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+
         {/* Row 1: Tier + Provider */}
         <div className="grid grid-cols-2 gap-4">
           <FormField label="Quality Tier" required>
@@ -624,10 +747,10 @@ export default function AdminModelsPage() {
               disabled={!!editId}
             >
               <SelectTrigger>
-                <SelectValue placeholder="Select provider..." />
+                <SelectValue placeholder={`Select ${mediaType === "VIDEO" ? "video" : "image"} provider...`} />
               </SelectTrigger>
               <SelectContent>
-                {Object.entries(KNOWN_PROVIDERS).map(([key, info]) => (
+                {providersForMediaType.map(([key, info]) => (
                   <SelectItem key={key} value={key}>{info.label}</SelectItem>
                 ))}
               </SelectContent>
@@ -686,7 +809,15 @@ export default function AdminModelsPage() {
             )}
           </FormField>
 
-          <FormField label="Credit Cost" required description="Credits deducted per generation">
+          <FormField
+            label="Credit Cost"
+            required
+            description={
+              VIDEO_PROVIDERS.has(providerName.toLowerCase())
+                ? "Credits per 15-second clip — a 30s video bills 2× this"
+                : "Credits deducted per generation"
+            }
+          >
             <Input
               type="number"
               min={1}
@@ -710,7 +841,49 @@ export default function AdminModelsPage() {
         <div className="border-t pt-4">
           <h4 className="text-sm font-medium mb-3">Generation Settings</h4>
 
-          {providerName === "ideogram" ? (
+          {providerName === "seedance" ? (
+            /* Seedance video config */
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <Label className="text-xs">
+                  Output Resolution
+                  <HelpTip text="Video output resolution. Seedance Fast supports only 720p; Pro supports 720p and 1080p. Cost scales ~2.5× from 720p to 1080p." />
+                </Label>
+                <Select
+                  value={modelConfig.resolution}
+                  onValueChange={(v) => setModelConfig({ ...modelConfig, resolution: v as "720p" | "1080p" })}
+                >
+                  <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="720p">720p (HD)</SelectItem>
+                    <SelectItem value="1080p">1080p (Full HD)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs">
+                  Provider Cost / 15s clip (USD)
+                  <HelpTip text="Approximate Seedance cost for one 15-second clip at the chosen resolution. Used by the cost guard to track daily AI spend. Reference: Fast 720p ≈ $2.40, Pro 720p ≈ $3.00, Pro 1080p ≈ $7.50." />
+                </Label>
+                <Input
+                  type="number"
+                  min={0}
+                  step={0.01}
+                  value={modelConfig.costUsd}
+                  onChange={(e) => setModelConfig({ ...modelConfig, costUsd: +e.target.value })}
+                  className="mt-1"
+                />
+                <p className="text-[10px] text-muted-foreground mt-0.5">
+                  30s video ≈ ${(modelConfig.costUsd * 2).toFixed(2)}
+                </p>
+              </div>
+              <div className="flex items-center">
+                <p className="text-xs text-muted-foreground">
+                  Duration is chosen by the user per-generation (15s or 30s). Pipeline submits one Seedance task per 15s and stitches with ffmpeg.
+                </p>
+              </div>
+            </div>
+          ) : providerName === "ideogram" ? (
             /* Ideogram-specific config */
             <div className="grid grid-cols-3 gap-4">
               <div>

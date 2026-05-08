@@ -31,6 +31,14 @@ const envSchema = z.object({
   IDEOGRAM_API_KEY: z.string().default(""),
   GEMINI_API_KEY: z.string().default(""),
 
+  // Seedance (ByteDance video — BytePlus ModelArk)
+  SEEDANCE_API_KEY: z.string().default(""),
+  SEEDANCE_BASE_URL: z
+    .string()
+    .url()
+    .default("https://ark.ap-southeast.bytepluses.com/api/v3"),
+  SEEDANCE_POLL_MAX_WAIT_MS: z.coerce.number().default(540_000), // 9 min — well under the 10 min job timeout
+
   // Worker
   WORKER_CONCURRENCY: z.coerce.number().default(3),
   WORKER_MAX_MEMORY_MB: z.coerce.number().default(512),
@@ -41,6 +49,7 @@ const envSchema = z.object({
   APPLE_BUNDLE_ID: z.string().default(""),
   APPLE_PRIVATE_KEY: z.string().default(""),           // PEM-encoded ES256 key
   APPLE_ENVIRONMENT: z.enum(["Sandbox", "Production"]).default("Sandbox"),
+  APPLE_SIGN_IN_CLIENT_ID: z.string().default(""),     // Bundle ID for iOS, Services ID for web; falls back to APPLE_BUNDLE_ID
 
   // Razorpay (Web payments)
   RAZORPAY_KEY_ID: z.string().default(""),

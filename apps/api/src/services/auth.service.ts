@@ -1,8 +1,11 @@
 import bcrypt from "bcryptjs";
+import { createPublicKey, type JsonWebKey } from "crypto";
 import jwt from "jsonwebtoken";
+import type { JwtPayload } from "jsonwebtoken";
 import { v4 as uuidv4 } from "uuid";
 import { prisma } from "../config/database.js";
 import { config } from "../config/index.js";
+import { credentialService } from "./credential.service.js";
 import { logger } from "../utils/logger.js";
 import {
   UnauthorizedError,
@@ -12,6 +15,22 @@ import {
   ForbiddenError,
 } from "../utils/errors.js";
 type UserRole = "USER" | "ADMIN" | "SUPER_ADMIN";
+
+type AppleJwk = JsonWebKey & {
+  kid: string;
+  alg?: string;
+  use?: string;
+};
+
+type AppleIdentityPayload = JwtPayload & {
+  iss: string;
+  aud: string;
+  sub: string;
+  email?: string;
+  email_verified?: boolean | string;
+  is_private_email?: boolean | string;
+  nonce?: string;
+};
 
 interface TokenPair {
   accessToken: string;
@@ -36,6 +55,7 @@ interface AuthResult {
 
 export class AuthService {
   private readonly SALT_ROUNDS = 12;
+  private appleJwksCache: { keys: AppleJwk[]; expiresAt: number } | null = null;
 
   /**
    * Register with email/password. Restricted to admin account creation only.
@@ -270,6 +290,125 @@ export class AuthService {
     };
   }
 
+  /**
+   * Authenticate via Sign in with Apple. Verifies the Apple identity token
+   * using Apple's JWKS, then links or creates a local user.
+   */
+  async appleLogin(input: {
+    identityToken: string;
+    authorizationCode?: string;
+    nonce?: string;
+    name?: string;
+    fullName?: { givenName?: string | null; familyName?: string | null };
+    country?: string;
+  }): Promise<AuthResult> {
+    const payload = await this.verifyAppleIdentityToken(
+      input.identityToken,
+      input.nonce
+    );
+
+    const appleId = payload.sub;
+    const email = payload.email?.trim().toLowerCase();
+    const emailVerified =
+      payload.email_verified === true || payload.email_verified === "true";
+
+    if (!appleId) {
+      throw new UnauthorizedError("Invalid Apple token");
+    }
+
+    const appleUser = await prisma.user.findFirst({
+      where: { appleId } as any,
+      include: { customRole: { select: { name: true, permissions: true } } },
+    });
+
+    const emailUser = email
+      ? await prisma.user.findUnique({
+          where: { email },
+          include: { customRole: { select: { name: true, permissions: true } } },
+        })
+      : null;
+
+    if (appleUser && emailUser && appleUser.id !== emailUser.id) {
+      throw new ConflictError(
+        "This Apple account is already linked to another user"
+      );
+    }
+
+    let user = appleUser ?? emailUser;
+    const newCountry = this.normalizeCountry(input.country);
+
+    if (user && !(user as any).appleId) {
+      user = await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          appleId,
+          emailVerified: user.emailVerified || emailVerified,
+          country: (user as any).country || newCountry,
+        } as any,
+        include: { customRole: { select: { name: true, permissions: true } } },
+      });
+      logger.info({ userId: user.id, email: user.email }, "Apple account linked to existing user");
+    } else if (!user) {
+      if (!email) {
+        throw new BadRequestError(
+          "Email is required for first-time Apple sign-in"
+        );
+      }
+
+      const randomHash = await bcrypt.hash(uuidv4(), this.SALT_ROUNDS);
+      user = await prisma.user.create({
+        data: {
+          email,
+          passwordHash: randomHash,
+          name: this.resolveAppleName(input, email),
+          appleId,
+          emailVerified,
+          canGenerate: true,
+          country: newCountry,
+        } as any,
+        include: { customRole: { select: { name: true, permissions: true } } },
+      });
+      logger.info({ userId: user.id, email, country: newCountry }, "New user created via Apple Sign-In");
+    } else if (newCountry && !(user as any).country) {
+      user = await prisma.user.update({
+        where: { id: user.id },
+        data: { country: newCountry } as any,
+        include: { customRole: { select: { name: true, permissions: true } } },
+      });
+    }
+
+    if (user!.deletedAt || !user!.isActive) {
+      throw new UnauthorizedError("Account has been deactivated");
+    }
+
+    await prisma.user.update({
+      where: { id: user!.id },
+      data: { lastLoginAt: new Date() },
+    });
+
+    const tokens = await this.generateTokens(
+      user!.id,
+      user!.role,
+      (user as any)!.customRole?.permissions || []
+    );
+
+    return {
+      user: {
+        id: user!.id,
+        email: user!.email,
+        name: user!.name,
+        phone: user!.phone,
+        role: user!.role,
+        customRole: (user as any)!.customRole,
+        avatarUrl: user!.avatarUrl,
+        country: (user as any).country ?? null,
+        canGenerate: user!.role === "SUPER_ADMIN" ? true : user!.canGenerate,
+        createdAt: user!.createdAt,
+      },
+      tokens,
+    };
+  }
+
   async refreshToken(refreshToken: string): Promise<TokenPair> {
     const stored = await prisma.refreshToken.findUnique({
       where: { token: refreshToken },
@@ -403,6 +542,126 @@ export class AuthService {
     if (!country) return null;
     const normalized = country.trim().toUpperCase();
     return /^[A-Z]{2}$/.test(normalized) ? normalized : null;
+  }
+
+  private async verifyAppleIdentityToken(
+    identityToken: string,
+    nonce?: string
+  ): Promise<AppleIdentityPayload> {
+    const decoded = jwt.decode(identityToken, { complete: true });
+    if (
+      !decoded ||
+      typeof decoded === "string" ||
+      decoded.header.alg !== "RS256" ||
+      !decoded.header.kid
+    ) {
+      throw new UnauthorizedError("Invalid Apple token");
+    }
+
+    const jwk = await this.getAppleJwk(decoded.header.kid);
+    const publicKey = createPublicKey({ key: jwk, format: "jwk" });
+    const audiences = await this.getAppleSignInAudiences();
+    const audience =
+      audiences.length === 1
+        ? audiences[0]
+        : (audiences as [string, ...string[]]);
+
+    let verified: string | JwtPayload;
+    try {
+      verified = jwt.verify(identityToken, publicKey, {
+        algorithms: ["RS256"],
+        issuer: "https://appleid.apple.com",
+        audience,
+      });
+    } catch (err) {
+      logger.warn({ err }, "Apple token verification failed");
+      throw new UnauthorizedError("Invalid Apple token");
+    }
+
+    if (!verified || typeof verified === "string") {
+      throw new UnauthorizedError("Invalid Apple token");
+    }
+
+    const payload = verified as AppleIdentityPayload;
+    if (nonce && payload.nonce !== nonce) {
+      throw new UnauthorizedError("Invalid Apple nonce");
+    }
+
+    return payload;
+  }
+
+  private async getAppleJwk(kid: string): Promise<AppleJwk> {
+    const keys = await this.getAppleJwks();
+    const jwk = keys.find((key) => key.kid === kid);
+    if (!jwk) {
+      this.appleJwksCache = null;
+      const refreshed = await this.getAppleJwks();
+      const refreshedJwk = refreshed.find((key) => key.kid === kid);
+      if (refreshedJwk) return refreshedJwk;
+      throw new UnauthorizedError("Invalid Apple token");
+    }
+    return jwk;
+  }
+
+  private async getAppleJwks(): Promise<AppleJwk[]> {
+    if (this.appleJwksCache && this.appleJwksCache.expiresAt > Date.now()) {
+      return this.appleJwksCache.keys;
+    }
+
+    const response = await fetch("https://appleid.apple.com/auth/keys");
+    if (!response.ok) {
+      throw new UnauthorizedError("Unable to verify Apple token");
+    }
+
+    const body = (await response.json()) as { keys?: AppleJwk[] };
+    if (!Array.isArray(body.keys) || body.keys.length === 0) {
+      throw new UnauthorizedError("Unable to verify Apple token");
+    }
+
+    this.appleJwksCache = {
+      keys: body.keys,
+      expiresAt: Date.now() + 60 * 60 * 1000,
+    };
+
+    return body.keys;
+  }
+
+  private async getAppleSignInAudiences(): Promise<string[]> {
+    const signInClientId = await credentialService.getCredentialOrEnv(
+      "apple_sign_in_client_id"
+    );
+    const bundleId = await credentialService.getCredentialOrEnv("apple_bundle_id");
+    const raw = signInClientId || bundleId;
+    const audiences = raw
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean);
+
+    if (audiences.length === 0) {
+      throw new BadRequestError("Apple Sign-In is not configured");
+    }
+
+    return audiences;
+  }
+
+  private resolveAppleName(
+    input: {
+      name?: string;
+      fullName?: { givenName?: string | null; familyName?: string | null };
+    },
+    email: string
+  ): string {
+    if (input.name?.trim()) return input.name.trim();
+
+    const fullName = [
+      input.fullName?.givenName?.trim(),
+      input.fullName?.familyName?.trim(),
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .trim();
+
+    return fullName || email.split("@")[0];
   }
 }
 

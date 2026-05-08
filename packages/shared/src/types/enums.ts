@@ -1,6 +1,7 @@
 export { Language } from "../constants/languages.js";
 export { Position } from "../constants/positions.js";
 export { QualityTier } from "../constants/tiers.js";
+export { JobType } from "../constants/video.js";
 
 export const UserRole = {
   USER: "USER",

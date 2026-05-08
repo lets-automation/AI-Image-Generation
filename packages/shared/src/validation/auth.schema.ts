@@ -30,6 +30,20 @@ export const refreshTokenSchema = z.object({
   refreshToken: z.string().min(1, "Refresh token is required"),
 });
 
+export const appleLoginSchema = z.object({
+  identityToken: z.string().min(1, "Apple identity token is required"),
+  authorizationCode: z.string().min(1).optional(),
+  nonce: z.string().min(1).optional(),
+  name: z.string().min(1).max(100).trim().optional(),
+  fullName: z
+    .object({
+      givenName: z.string().min(1).max(60).trim().optional().nullable(),
+      familyName: z.string().min(1).max(60).trim().optional().nullable(),
+    })
+    .optional(),
+  country: z.string().length(2).optional(),
+});
+
 export const updateProfileSchema = z.object({
   name: z
     .string()
@@ -59,5 +73,6 @@ export const changePasswordSchema = z.object({
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
 export type RefreshTokenInput = z.infer<typeof refreshTokenSchema>;
+export type AppleLoginInput = z.infer<typeof appleLoginSchema>;
 export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;

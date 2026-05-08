@@ -74,8 +74,10 @@ export default function DownloadsPage() {
   const fetchGenerations = useCallback(async () => {
     setIsLoading(true);
     try {
+      // This gallery is image-focused — video generations live in /videos.
+      // Filter server-side so pagination counts are accurate.
       const { data } = await apiClient.get("/generations", {
-        params: { page, limit: 12 },
+        params: { page, limit: 12, jobType: "IMAGE" },
       });
       setGenerations(data.data ?? []);
       setMeta(data.meta ?? null);

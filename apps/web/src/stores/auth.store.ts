@@ -14,6 +14,14 @@ interface AuthState {
   initialize: () => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
   googleLogin: (credential: string, country?: string) => Promise<void>;
+  appleLogin: (input: {
+    identityToken: string;
+    authorizationCode?: string;
+    nonce?: string;
+    name?: string;
+    fullName?: { givenName?: string | null; familyName?: string | null };
+    country?: string;
+  }) => Promise<void>;
   register: (data: {
     email: string;
     password: string;
@@ -107,6 +115,30 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const { data } = await apiClient.post<{ data: AuthResponse }>(
         "/auth/google",
         { credential, country }
+      );
+
+      const { user, tokens } = data.data;
+      setAccessToken(tokens.accessToken);
+      localStorage.setItem("ep_refresh_token", tokens.refreshToken);
+
+      set({
+        user,
+        isAuthenticated: true,
+        isInitialized: true,
+        isLoading: false,
+      });
+    } catch (error) {
+      set({ isLoading: false });
+      throw error;
+    }
+  },
+
+  appleLogin: async (input) => {
+    set({ isLoading: true });
+    try {
+      const { data } = await apiClient.post<{ data: AuthResponse }>(
+        "/auth/apple",
+        input
       );
 
       const { user, tokens } = data.data;

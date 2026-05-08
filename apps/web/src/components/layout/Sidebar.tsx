@@ -7,6 +7,7 @@ import { useAuthStore } from "@/stores/auth.store";
 import {
   Calendar,
   ImageIcon,
+  Video,
   Download,
   CreditCard,
   UserRound,
@@ -24,6 +25,7 @@ interface NavItem {
 const publicNavItems: NavItem[] = [
   { label: "Events", href: "/events", icon: Calendar },
   { label: "Posters", href: "/posters", icon: ImageIcon },
+  { label: "Videos", href: "/videos", icon: Video },
 ];
 
 const authNavItems: NavItem[] = [

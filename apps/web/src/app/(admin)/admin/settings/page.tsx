@@ -93,6 +93,7 @@ const APPLE_FIELDS: CredFieldDef[] = [
   { key: "apple_key_id", label: "Key ID", type: "password", placeholder: "e.g. V7YFD8FUAG" },
   { key: "apple_issuer_id", label: "Issuer ID", type: "password", placeholder: "e.g. 275f8bf8-..." },
   { key: "apple_bundle_id", label: "Bundle ID", type: "password", placeholder: "e.g. com.example.app" },
+  { key: "apple_sign_in_client_id", label: "Sign-In Client ID", type: "password", placeholder: "iOS bundle ID or web Services ID" },
   { key: "apple_private_key", label: "Private Key (ES256)", type: "textarea", placeholder: "Paste PKCS#8 private key..." },
   { key: "apple_environment", label: "Environment", type: "select", options: ["Sandbox", "Production"] },
 ];

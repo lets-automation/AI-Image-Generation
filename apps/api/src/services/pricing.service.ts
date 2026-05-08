@@ -1,5 +1,12 @@
 import { prisma } from "../config/database.js";
 import { NotFoundError, ConflictError } from "../utils/errors.js";
+import {
+  DEFAULT_VIDEO_CREDIT_COST_PER_15S,
+  SEEDANCE_MAX_NATIVE_DURATION_SEC,
+  SEEDANCE_PROVIDER_NAME,
+  SEEDANCE_TIER_MAP,
+  type VideoDuration,
+} from "@ep/shared";
 import type { QualityTier } from "@prisma/client";
 
 // ─── Model Pricing ──────────────────────────────────────
@@ -94,6 +101,39 @@ export class PricingService {
       where: { qualityTier: tier, isActive: true },
       orderBy: { priority: "desc" },
     });
+  }
+
+  // ─── Video pricing ──────────────────────────────────────
+
+  /**
+   * Resolve the credit cost for a video generation.
+   *
+   * The Seedance ModelPricing row stores the per-15s credit cost for that
+   * tier+variant. Longer durations (30 s) are billed linearly because the
+   * pipeline runs N native clips end-to-end (one Seedance call per 15 s).
+   *
+   * Falls back to {@link DEFAULT_VIDEO_CREDIT_COST_PER_15S} when no row exists,
+   * so video generation works out of the box before the admin seeds pricing.
+   */
+  async getVideoCreditCost(
+    tier: QualityTier,
+    durationSec: VideoDuration
+  ): Promise<number> {
+    const mapping = SEEDANCE_TIER_MAP[tier];
+    const pricing = await prisma.modelPricing.findFirst({
+      where: {
+        qualityTier: tier,
+        isActive: true,
+        providerName: SEEDANCE_PROVIDER_NAME,
+        modelId: mapping.modelId,
+      },
+      select: { creditCost: true },
+    });
+
+    const per15sCost =
+      pricing?.creditCost ?? DEFAULT_VIDEO_CREDIT_COST_PER_15S[tier];
+    const clipCount = Math.ceil(durationSec / SEEDANCE_MAX_NATIVE_DURATION_SEC);
+    return per15sCost * clipCount;
   }
 }
 

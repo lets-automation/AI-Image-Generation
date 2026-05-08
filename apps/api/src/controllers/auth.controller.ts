@@ -79,6 +79,46 @@ export class AuthController {
     }
   }
 
+  async appleLogin(
+    req: Request,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> {
+    try {
+      const { identityToken, authorizationCode, nonce, name, fullName, country } =
+        req.body as {
+          identityToken: string;
+          authorizationCode?: string;
+          nonce?: string;
+          name?: string;
+          fullName?: { givenName?: string | null; familyName?: string | null };
+          country?: string;
+        };
+
+      const result = await authService.appleLogin({
+        identityToken,
+        authorizationCode,
+        nonce,
+        name,
+        fullName,
+        country,
+      });
+
+      res.json({
+        success: true,
+        data: {
+          user: {
+            ...result.user,
+            createdAt: result.user.createdAt.toISOString(),
+          },
+          tokens: result.tokens,
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
   async refresh(
     req: Request,
     res: Response,
