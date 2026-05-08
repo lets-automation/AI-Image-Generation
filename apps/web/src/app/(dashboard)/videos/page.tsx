@@ -45,7 +45,9 @@ export default function VideosPage() {
       .catch((err) => {
         if (cancelled) return;
         setError(
-          err?.response?.data?.message ?? "Failed to load videos. Please try again."
+          err?.response?.data?.error?.message ??
+            err?.response?.data?.message ??
+            "Failed to load videos. Please try again."
         );
       })
       .finally(() => {

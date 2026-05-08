@@ -188,9 +188,22 @@ export default function NewVideoPage() {
 
       router.push(`/videos/${created.id}`);
     } catch (err: unknown) {
-      const e = err as { response?: { data?: { message?: string } }; message?: string };
+      // The API wraps errors as { success: false, error: { code, message, details } }.
+      // Prefer that message so users see "Insufficient credits: balance 0, required 150"
+      // or "Active subscription required" instead of axios's generic
+      // "Request failed with status code 402".
+      const e = err as {
+        response?: {
+          data?: {
+            error?: { code?: string; message?: string };
+            message?: string;
+          };
+        };
+        message?: string;
+      };
       setErrorMessage(
-        e?.response?.data?.message ??
+        e?.response?.data?.error?.message ??
+          e?.response?.data?.message ??
           e?.message ??
           "Failed to start video generation."
       );
