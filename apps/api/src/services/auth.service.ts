@@ -1,5 +1,5 @@
 import bcrypt from "bcryptjs";
-import { createPublicKey, type JsonWebKey } from "crypto";
+import { createHash, createPublicKey, type JsonWebKey } from "crypto";
 import jwt from "jsonwebtoken";
 import type { JwtPayload } from "jsonwebtoken";
 import { v4 as uuidv4 } from "uuid";
@@ -583,7 +583,7 @@ export class AuthService {
     }
 
     const payload = verified as AppleIdentityPayload;
-    if (nonce && payload.nonce !== nonce) {
+    if (nonce && !this.appleNonceMatches(payload.nonce, nonce)) {
       throw new UnauthorizedError("Invalid Apple nonce");
     }
 
@@ -662,6 +662,17 @@ export class AuthService {
       .trim();
 
     return fullName || email.split("@")[0];
+  }
+
+  private appleNonceMatches(tokenNonce: string | undefined, suppliedNonce: string): boolean {
+    if (!tokenNonce) return false;
+    if (tokenNonce === suppliedNonce) return true;
+
+    const hashedNonce = createHash("sha256")
+      .update(suppliedNonce)
+      .digest("hex");
+
+    return tokenNonce === hashedNonce;
   }
 }
 
