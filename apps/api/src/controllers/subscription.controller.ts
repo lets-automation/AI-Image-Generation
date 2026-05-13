@@ -173,17 +173,34 @@ export class SubscriptionController {
   /**
    * GET /api/v1/subscriptions/plans
    *
-   * List all active subscription plans for pricing display.
+   * List active subscription plans for pricing display.
+   *
+   * Optional query:
+   * - platform=ios => only plans purchasable through Apple IAP
+   * - platform=web => only plans purchasable through Razorpay
+   * - platform=all or omitted => all active plans
    * Public route — no auth required (but mounted under authenticated router for consistency).
    */
-  async plans(_req: Request, res: Response, next: NextFunction): Promise<void> {
+  async plans(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
+      const platform =
+        typeof req.query.platform === "string" ? req.query.platform : "all";
+
+      if (!["all", "ios", "web"].includes(platform)) {
+        throw new BadRequestError("Invalid platform. Use ios, web, or all.");
+      }
+
       const plans = await prisma.subscriptionPlan.findMany({
-        where: { isActive: true },
+        where: {
+          isActive: true,
+          ...(platform === "ios" ? { appleProductId: { not: null } } : {}),
+          ...(platform === "web" ? { razorpayPlanId: { not: null } } : {}),
+        },
         select: {
           id: true,
           name: true,
           appleProductId: true,
+          razorpayPlanId: true,
           priceInr: true,
           weeklyCredits: true,
           tierAccess: true,

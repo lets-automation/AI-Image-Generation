@@ -8,7 +8,8 @@ import { apiClient } from "@/lib/api-client";
 interface SubscriptionPlan {
   id: string;
   name: string;
-  appleProductId: string;
+  appleProductId: string | null;
+  razorpayPlanId: string | null;
   priceInr: number;
   weeklyCredits: number;
   tierAccess: string[];
@@ -87,7 +88,7 @@ export const useSubscriptionStore = create<SubscriptionState>((set) => ({
   fetchPlans: async () => {
     try {
       const res = await apiClient.get<{ success: boolean; data: SubscriptionPlan[] }>(
-        "/subscriptions/plans"
+        "/subscriptions/plans?platform=web"
       );
       set({ plans: res.data.data });
     } catch {
