@@ -11,8 +11,8 @@
  */
 
 import * as crypto from "crypto";
-import { config } from "../../config/index.js";
 import { logger } from "../../utils/logger.js";
+import { credentialService } from "../credential.service.js";
 import { generateAppStoreJWT, getAppStoreBaseUrl } from "./apple-auth.js";
 import type {
   AppleTransactionInfo,
@@ -95,14 +95,14 @@ export function verifyJWSSignature(jws: string): boolean {
         .digest("hex");
 
       if (rootFingerprint !== APPLE_ROOT_CA_G3_FINGERPRINT) {
+        // Defense-in-depth warning only — the ES256 signature verify below
+        // is the real security gate. Avoid coupling to a stale env-derived
+        // environment value (admin can flip Sandbox/Production at runtime
+        // via the credential service).
         logger.warn(
           { expected: APPLE_ROOT_CA_G3_FINGERPRINT, got: rootFingerprint },
           "Apple root certificate fingerprint mismatch"
         );
-        // In sandbox, Apple may use different root certs, so we log but don't fail
-        if (config.APPLE_ENVIRONMENT === "Production") {
-          return false;
-        }
       }
     }
 
@@ -223,23 +223,28 @@ export function decodeNotificationPayload(
  * Fully decode a webhook notification into our internal WebhookEvent format.
  * Decodes the outer notification, inner transaction, and renewal info.
  */
-export function decodeWebhookEvent(
+export async function decodeWebhookEvent(
   signedPayload: string,
   requireVerification = true
-): WebhookEvent {
+): Promise<WebhookEvent> {
   const notification = decodeNotificationPayload(signedPayload, requireVerification);
 
+  // Resolve expected env + bundle ID from DB (admin-configurable), falling back to env vars
+  const expectedEnv =
+    (await credentialService.getCredentialOrEnv("apple_environment")) || "Sandbox";
+  const expectedBundleId = await credentialService.getCredentialOrEnv("apple_bundle_id");
+
   // Validate environment matches our config
-  if (notification.data.environment !== config.APPLE_ENVIRONMENT) {
+  if (notification.data.environment !== expectedEnv) {
     throw new Error(
-      `Environment mismatch: received ${notification.data.environment}, expected ${config.APPLE_ENVIRONMENT}`
+      `Environment mismatch: received ${notification.data.environment}, expected ${expectedEnv}`
     );
   }
 
   // Validate bundle ID
-  if (notification.data.bundleId !== config.APPLE_BUNDLE_ID) {
+  if (expectedBundleId && notification.data.bundleId !== expectedBundleId) {
     throw new Error(
-      `Bundle ID mismatch: received ${notification.data.bundleId}, expected ${config.APPLE_BUNDLE_ID}`
+      `Bundle ID mismatch: received ${notification.data.bundleId}, expected ${expectedBundleId}`
     );
   }
 

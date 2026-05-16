@@ -18,7 +18,7 @@ import {
 import { prisma } from "../config/database.js";
 import { logger } from "../utils/logger.js";
 import { BadRequestError } from "../utils/errors.js";
-import { config } from "../config/index.js";
+import { credentialService } from "../services/credential.service.js";
 
 export class SubscriptionController {
   /**
@@ -50,10 +50,13 @@ export class SubscriptionController {
       const txInfo = decodeSignedTransaction(signedTransactionInfo, false); // already verified
       const verifiedTx = mapToVerifiedTransaction(txInfo);
 
-      // Step 3: Validate environment
-      if (verifiedTx.environment !== config.APPLE_ENVIRONMENT) {
+      // Step 3: Validate environment (DB-backed, admin-configurable)
+      const expectedEnv =
+        (await credentialService.getCredentialOrEnv("apple_environment")) ||
+        "Sandbox";
+      if (verifiedTx.environment !== expectedEnv) {
         throw new BadRequestError(
-          `Environment mismatch: transaction is ${verifiedTx.environment}, server expects ${config.APPLE_ENVIRONMENT}`
+          `Environment mismatch: transaction is ${verifiedTx.environment}, server expects ${expectedEnv}`
         );
       }
 

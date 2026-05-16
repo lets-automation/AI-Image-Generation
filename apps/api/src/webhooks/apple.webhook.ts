@@ -73,7 +73,7 @@ router.post("/apple", webhookLimiter, async (req: Request, res: Response) => {
     // ─── Step 1: Decode & verify JWS ─────────────────────────
     let event: WebhookEvent;
     try {
-      event = decodeWebhookEvent(signedPayload);
+      event = await decodeWebhookEvent(signedPayload);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown verification error";
 
