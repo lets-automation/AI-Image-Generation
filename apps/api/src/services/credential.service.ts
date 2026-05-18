@@ -12,6 +12,7 @@
 import { prisma } from "../config/database.js";
 import { config } from "../config/index.js";
 import { logger } from "../utils/logger.js";
+import { invalidateTokenCache as invalidateAppleTokenCache } from "./apple/apple-auth.js";
 
 // ─── Credential key → env variable mapping ──────────────────
 
@@ -143,6 +144,14 @@ class CredentialService {
 
     // Invalidate cache so next read fetches fresh value
     invalidateCache(key);
+
+    // The App Store Server JWT is signed with apple_private_key, scoped to
+    // apple_issuer_id / apple_key_id / apple_bundle_id, and the chosen base URL
+    // depends on apple_environment. Any of these changing must invalidate the
+    // cached JWT so the next Apple API call uses fresh values.
+    if (key.startsWith("apple_")) {
+      invalidateAppleTokenCache();
+    }
 
     logger.info({ key }, "Credential updated via admin UI");
   }

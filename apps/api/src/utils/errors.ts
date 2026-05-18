@@ -81,6 +81,22 @@ export class SubscriptionRequiredError extends AppError {
   }
 }
 
+/**
+ * Raised when soft-verification against the payment provider (Apple / Razorpay)
+ * fails for an unexpected reason — auth error, network error, malformed
+ * response, etc. Distinct from SubscriptionRequiredError so the client can tell
+ * "you have no subscription" from "we couldn't check with Apple right now".
+ */
+export class ProviderVerificationError extends AppError {
+  constructor(provider: string, reason: string) {
+    super(
+      `${provider} verification failed: ${reason}`,
+      502,
+      "PROVIDER_VERIFICATION_FAILED"
+    );
+  }
+}
+
 export class TierNotAllowedError extends AppError {
   constructor(tier: string) {
     super(

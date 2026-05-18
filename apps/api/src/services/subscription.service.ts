@@ -28,6 +28,7 @@ import {
   InsufficientCreditsError,
   SubscriptionRequiredError,
   TierNotAllowedError,
+  ProviderVerificationError,
 } from "../utils/errors.js";
 import { auditService } from "./audit.service.js";
 import { appleProvider } from "./subscription/apple.provider.js";
@@ -1119,11 +1120,25 @@ export class SubscriptionService {
 
       return null;
     } catch (err) {
+      // Re-throw operational errors (e.g. our own ProviderVerificationError)
+      // unchanged so they keep their status code & code identifier.
+      if (err instanceof ProviderVerificationError) {
+        logger.error(
+          { err, subscriptionId: subscription.id, userId },
+          "Soft-verify with Apple failed"
+        );
+        throw err;
+      }
+
+      const reason = err instanceof Error ? err.message : "unknown error";
       logger.error(
         { err, subscriptionId: subscription.id, userId },
-        "Soft-verify with Apple failed — rejecting credit check"
+        "Soft-verify with Apple failed"
       );
-      return null;
+      // Surface the real reason instead of the generic SubscriptionRequiredError
+      // so clients can distinguish "no subscription" from "Apple is unreachable
+      // / our credentials are wrong". 502 communicates the upstream nature.
+      throw new ProviderVerificationError("Apple", reason);
     }
   }
 
@@ -1253,11 +1268,20 @@ export class SubscriptionService {
 
       return null;
     } catch (err) {
+      if (err instanceof ProviderVerificationError) {
+        logger.error(
+          { err, subscriptionId: subscription.id, userId, razorpaySubscriptionId },
+          "Soft-verify with Razorpay failed"
+        );
+        throw err;
+      }
+
+      const reason = err instanceof Error ? err.message : "unknown error";
       logger.error(
         { err, subscriptionId: subscription.id, userId, razorpaySubscriptionId },
-        "Soft-verify with Razorpay failed — rejecting credit check"
+        "Soft-verify with Razorpay failed"
       );
-      return null;
+      throw new ProviderVerificationError("Razorpay", reason);
     }
   }
 
