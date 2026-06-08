@@ -42,6 +42,36 @@ export class SubscriptionController {
 
       // Step 1: Verify JWS signature
       const isValid = verifyJWSSignature(signedTransactionInfo);
+
+      // [TEMP DIAGNOSTIC] decode without verification so we can log what the
+      // client actually sent, even when a gate below rejects it. Remove once
+      // the Apple sandbox verify issue is resolved.
+      let diagEnv = "<decode-failed>";
+      let diagProductId = "<decode-failed>";
+      let diagOriginalTxId = "<decode-failed>";
+      try {
+        const peek = decodeSignedTransaction(signedTransactionInfo, false);
+        diagEnv = peek.environment;
+        diagProductId = peek.productId;
+        diagOriginalTxId = peek.originalTransactionId;
+      } catch {
+        // ignore — diagnostic only
+      }
+      const diagExpectedEnv =
+        (await credentialService.getCredentialOrEnv("apple_environment")) ||
+        "Sandbox";
+      logger.info(
+        {
+          userId,
+          jwsValid: isValid,
+          txEnvironment: diagEnv,
+          expectedEnv: diagExpectedEnv,
+          productId: diagProductId,
+          originalTransactionId: diagOriginalTxId,
+        },
+        "[DIAG] Apple verify request received"
+      );
+
       if (!isValid) {
         throw new BadRequestError("Invalid transaction signature");
       }
@@ -51,9 +81,7 @@ export class SubscriptionController {
       const verifiedTx = mapToVerifiedTransaction(txInfo);
 
       // Step 3: Validate environment (DB-backed, admin-configurable)
-      const expectedEnv =
-        (await credentialService.getCredentialOrEnv("apple_environment")) ||
-        "Sandbox";
+      const expectedEnv = diagExpectedEnv;
       if (verifiedTx.environment !== expectedEnv) {
         throw new BadRequestError(
           `Environment mismatch: transaction is ${verifiedTx.environment}, server expects ${expectedEnv}`
