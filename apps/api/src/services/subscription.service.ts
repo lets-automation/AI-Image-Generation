@@ -85,18 +85,17 @@ export class SubscriptionService {
       where: { originalTransactionId: verifiedTx.originalTransactionId },
     });
     if (existing) {
-      // If same user, just return existing — idempotent
-      if (existing.userId === userId) {
-        logger.info(
-          { subscriptionId: existing.id, userId },
-          "Subscription already exists for this transaction — idempotent"
-        );
-        return existing;
-      }
       // Different user trying to claim same transaction — reject
-      throw new ConflictError(
-        "This subscription is already linked to another account"
-      );
+      if (existing.userId !== userId) {
+        throw new ConflictError(
+          "This subscription is already linked to another account"
+        );
+      }
+      // Same user — subscription already exists. Don't blindly return:
+      // re-verifying a still-valid transaction (missed renewal webhook, or
+      // Sandbox where periods last only minutes) must ensure an OPEN balance
+      // exists, otherwise the user has an ACTIVE subscription with no credits.
+      return this.reconcileExistingSubscription(existing, userId, verifiedTx);
     }
 
     const subscription = await prisma.$transaction(async (tx) => {
@@ -161,6 +160,79 @@ export class SubscriptionService {
     );
 
     return subscription;
+  }
+
+  /**
+   * Reconcile an already-existing subscription on a re-verify.
+   *
+   * The client may call /verify again for a subscription we already have —
+   * after a missed DID_RENEW webhook, an app restart, or (very common in
+   * Sandbox) because the short accelerated period rolled over. In all those
+   * cases we must guarantee an OPEN, still-valid balance exists; otherwise the
+   * user is stuck "ACTIVE with no credits".
+   *
+   * Anti-farming guards (a balance is only created when ALL hold):
+   * - there is no open balance for a currently-valid period, AND
+   * - the verified transaction is itself still valid (expiresDate in future), AND
+   * - we have not already serviced this exact period (no balance with the same periodEnd)
+   */
+  private async reconcileExistingSubscription(
+    existing: Subscription,
+    userId: string,
+    verifiedTx: VerifiedTransaction
+  ) {
+    const now = new Date();
+
+    // 1) Already have an open, still-valid balance → truly idempotent.
+    const openValid = await prisma.subscriptionBalance.findFirst({
+      where: {
+        subscriptionId: existing.id,
+        isClosed: false,
+        periodEnd: { gt: now },
+      },
+    });
+    if (openValid) {
+      logger.info(
+        { subscriptionId: existing.id, userId },
+        "Re-verify: valid balance already open — idempotent"
+      );
+      return existing;
+    }
+
+    // 2) The transaction itself is expired → cannot grant credits.
+    //    (In Sandbox this means the short period lapsed; user must re-purchase.)
+    if (verifiedTx.expiresDate <= now) {
+      logger.warn(
+        { subscriptionId: existing.id, userId, expiresDate: verifiedTx.expiresDate },
+        "Re-verify: transaction already expired — no balance created, user must re-subscribe"
+      );
+      return existing;
+    }
+
+    // 3) Anti-farming: don't re-grant a period we've already serviced.
+    const servicedPeriod = await prisma.subscriptionBalance.findFirst({
+      where: { subscriptionId: existing.id, periodEnd: verifiedTx.expiresDate },
+    });
+    if (servicedPeriod) {
+      logger.info(
+        { subscriptionId: existing.id, userId },
+        "Re-verify: this period already has a balance — skipping creation"
+      );
+      return existing;
+    }
+
+    // 4) Valid transaction, no open balance, new period → recover as a renewal:
+    //    close stale balances, open a fresh one, advance the subscription period.
+    await this.handleRenewal(verifiedTx.originalTransactionId, verifiedTx);
+    logger.info(
+      { subscriptionId: existing.id, userId, newPeriodEnd: verifiedTx.expiresDate },
+      "Re-verify: reconciled missing balance via renewal recovery"
+    );
+
+    const refreshed = await prisma.subscription.findUnique({
+      where: { id: existing.id },
+    });
+    return refreshed ?? existing;
   }
 
   // ─── Renewal (DID_RENEW) ──────────────────────────────────

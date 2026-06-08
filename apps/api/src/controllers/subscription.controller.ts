@@ -49,11 +49,15 @@ export class SubscriptionController {
       let diagEnv = "<decode-failed>";
       let diagProductId = "<decode-failed>";
       let diagOriginalTxId = "<decode-failed>";
+      let diagExpiresDate = "<decode-failed>";
       try {
         const peek = decodeSignedTransaction(signedTransactionInfo, false);
         diagEnv = peek.environment;
         diagProductId = peek.productId;
         diagOriginalTxId = peek.originalTransactionId;
+        diagExpiresDate = peek.expiresDate
+          ? new Date(peek.expiresDate).toISOString()
+          : "<none>";
       } catch {
         // ignore — diagnostic only
       }
@@ -68,6 +72,8 @@ export class SubscriptionController {
           expectedEnv: diagExpectedEnv,
           productId: diagProductId,
           originalTransactionId: diagOriginalTxId,
+          expiresDate: diagExpiresDate,
+          now: new Date().toISOString(),
         },
         "[DIAG] Apple verify request received"
       );
