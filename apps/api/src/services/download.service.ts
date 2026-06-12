@@ -75,6 +75,26 @@ export class DownloadService {
   }
 
   /**
+   * Delete a download record. Only the owning user can delete it.
+   * The underlying generation and its image are untouched — this only
+   * removes the download history entry.
+   */
+  async deleteDownload(userId: string, downloadId: string) {
+    const download = await prisma.download.findUnique({
+      where: { id: downloadId },
+      select: { id: true, userId: true },
+    });
+
+    if (!download || download.userId !== userId) {
+      throw new NotFoundError("Download");
+    }
+
+    await prisma.download.delete({ where: { id: downloadId } });
+
+    logger.info({ downloadId, userId }, "Download deleted");
+  }
+
+  /**
    * List user's downloads with pagination.
    */
   async listDownloads(userId: string, page = 1, limit = 20) {

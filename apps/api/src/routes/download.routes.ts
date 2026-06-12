@@ -20,6 +20,10 @@ const downloadListQuery = z.object({
   limit: z.coerce.number().int().min(1).max(50).default(20),
 });
 
+const downloadIdParams = z.object({
+  id: z.string().cuid("Invalid download ID"),
+});
+
 // POST /api/v1/downloads — Create download and get signed URL
 router.post(
   "/",
@@ -32,6 +36,13 @@ router.get(
   "/",
   validate({ query: downloadListQuery }),
   (req, res, next) => downloadController.list(req, res, next)
+);
+
+// DELETE /api/v1/downloads/:id — Delete a download record
+router.delete(
+  "/:id",
+  validate({ params: downloadIdParams }),
+  (req, res, next) => downloadController.delete(req, res, next)
 );
 
 export { router as downloadRoutes };

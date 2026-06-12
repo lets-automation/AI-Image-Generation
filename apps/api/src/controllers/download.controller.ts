@@ -43,6 +43,19 @@ export class DownloadController {
       next(err);
     }
   }
+
+  /**
+   * DELETE /api/v1/downloads/:id
+   * Delete a download record owned by the requesting user.
+   */
+  async delete(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      await downloadService.deleteDownload(req.userId!, req.params.id as string);
+      res.json({ success: true, data: { deleted: true } });
+    } catch (err) {
+      next(err);
+    }
+  }
 }
 
 export const downloadController = new DownloadController();

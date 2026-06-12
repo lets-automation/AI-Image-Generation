@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
+import toast from "react-hot-toast";
 import { apiClient } from "@/lib/api-client";
 import { useRequireAuth } from "@/hooks/useAuth";
 import { ImageUploadCard } from "@/components/templates/ImageUploadCard";
@@ -70,6 +71,8 @@ export default function DownloadsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [tab, setTab] = useState<"generations" | "downloads">("generations");
   const [lightbox, setLightbox] = useState<{ url: string; gen?: GenerationItem; dl?: DownloadItem } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<DownloadItem | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const fetchGenerations = useCallback(async () => {
     setIsLoading(true);
@@ -120,6 +123,27 @@ export default function DownloadsPage() {
       }
     } catch {
       // Ignore
+    }
+  };
+
+  const handleDeleteDownload = async () => {
+    if (!deleteTarget || isDeleting) return;
+    setIsDeleting(true);
+    try {
+      await apiClient.delete(`/downloads/${deleteTarget.id}`);
+      toast.success("Download removed");
+      setDeleteTarget(null);
+      // If this was the last item on the page, step back a page;
+      // the page change triggers a refetch automatically.
+      if (downloads.length === 1 && page > 1) {
+        setPage((p) => p - 1);
+      } else {
+        fetchDownloads();
+      }
+    } catch {
+      toast.error("Failed to remove download");
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -186,6 +210,7 @@ export default function DownloadsPage() {
           downloads={downloads}
           onView={(url, dl) => setLightbox({ url, dl })}
           onRedownload={handleDownload}
+          onDelete={(dl) => setDeleteTarget(dl)}
         />
       )}
 
@@ -212,6 +237,16 @@ export default function DownloadsPage() {
             <ArrowIcon className="h-3.5 w-3.5 transition-transform group-enabled:group-hover:translate-x-0.5" />
           </button>
         </div>
+      )}
+
+      {/* Delete confirmation */}
+      {deleteTarget && (
+        <DeleteConfirmModal
+          download={deleteTarget}
+          isDeleting={isDeleting}
+          onCancel={() => { if (!isDeleting) setDeleteTarget(null); }}
+          onConfirm={handleDeleteDownload}
+        />
       )}
 
       {/* Premium Lightbox */}
@@ -349,11 +384,12 @@ function GenerationCard({
 }
 
 function DownloadsTable({
-  downloads, onView, onRedownload,
+  downloads, onView, onRedownload, onDelete,
 }: {
   downloads: DownloadItem[];
   onView: (url: string, dl: DownloadItem) => void;
   onRedownload: (genId: string) => void;
+  onDelete: (dl: DownloadItem) => void;
 }) {
   return (
     <div className="overflow-hidden rounded-2xl border border-gray-200/80 bg-white shadow-sm">
@@ -420,21 +456,110 @@ function DownloadsTable({
                     })}
                   </td>
                   <td className="px-5 py-3 text-right">
-                    {url && (
+                    <div className="inline-flex items-center gap-2">
+                      {url && (
+                        <button
+                          onClick={() => onRedownload(dl.generationId)}
+                          className="inline-flex items-center gap-1 rounded-lg bg-gray-900 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-gray-800"
+                        >
+                          <DownloadIcon className="h-3 w-3" />
+                          Re-download
+                        </button>
+                      )}
                       <button
-                        onClick={() => onRedownload(dl.generationId)}
-                        className="inline-flex items-center gap-1 rounded-lg bg-gray-900 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-gray-800"
+                        onClick={() => onDelete(dl)}
+                        title="Delete download"
+                        className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-gray-500 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600"
                       >
-                        <DownloadIcon className="h-3 w-3" />
-                        Re-download
+                        <TrashIcon className="h-3.5 w-3.5" />
                       </button>
-                    )}
+                    </div>
                   </td>
                 </tr>
               );
             })}
           </tbody>
         </table>
+      </div>
+    </div>
+  );
+}
+
+function DeleteConfirmModal({
+  download, isDeleting, onCancel, onConfirm,
+}: {
+  download: DownloadItem;
+  isDeleting: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  // Close on Escape
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onCancel();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onCancel]);
+
+  const previewUrl = cloudinaryOptimize(download.generation?.resultImageUrl ?? null, 200);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-gray-950/60 p-4 backdrop-blur-sm"
+      onClick={onCancel}
+    >
+      <div
+        className="w-full max-w-sm rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start gap-4">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-red-50">
+            <TrashIcon className="h-5 w-5 text-red-500" />
+          </div>
+          <div className="min-w-0">
+            <h3 className="text-base font-semibold text-gray-900">Delete download?</h3>
+            <p className="mt-1 text-sm text-gray-500">
+              This removes the entry from your download history. The original creative stays in your gallery.
+            </p>
+          </div>
+        </div>
+        {previewUrl && (
+          <div className="mt-4 flex items-center gap-3 rounded-xl bg-gray-50 p-2.5 ring-1 ring-gray-100">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={previewUrl} alt="" className="h-12 w-12 rounded-lg object-cover ring-1 ring-gray-200" />
+            <div className="min-w-0 text-xs text-gray-500">
+              <p className="line-clamp-1 font-medium text-gray-700">{download.generation?.prompt ?? "—"}</p>
+              <p className="mt-0.5 font-mono uppercase">{download.format} · {download.resolution}</p>
+            </div>
+          </div>
+        )}
+        <div className="mt-5 flex items-center justify-end gap-2.5">
+          <button
+            onClick={onCancel}
+            disabled={isDeleting}
+            className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={isDeleting}
+            className="inline-flex items-center gap-1.5 rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-red-700 disabled:opacity-60"
+          >
+            {isDeleting ? (
+              <>
+                <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                Deleting…
+              </>
+            ) : (
+              <>
+                <TrashIcon className="h-3.5 w-3.5" />
+                Delete
+              </>
+            )}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -724,6 +849,13 @@ function ImageIcon({ className = "" }: { className?: string }) {
       <rect x="3" y="3" width="18" height="18" rx="2" />
       <circle cx="9" cy="9" r="2" />
       <path d="M21 15l-5-5L5 21" />
+    </svg>
+  );
+}
+function TrashIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
     </svg>
   );
 }
