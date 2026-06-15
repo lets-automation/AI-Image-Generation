@@ -13,7 +13,7 @@ export class TemplateController {
         contentType?: "EVENT" | "POSTER";
         categoryId?: string;
         isActive?: boolean;
-        aspectRatio?: "SQUARE" | "PORTRAIT" | "LANDSCAPE";
+        aspectRatio?: "SQUARE" | "PORTRAIT" | "LANDSCAPE" | "STORY";
       };
 
       const result = await templateService.list(query);
@@ -32,7 +32,7 @@ export class TemplateController {
     try {
       const query = req.query as unknown as {
         contentType: "EVENT" | "POSTER";
-        aspectRatio?: "SQUARE" | "PORTRAIT" | "LANDSCAPE";
+        aspectRatio?: "SQUARE" | "PORTRAIT" | "LANDSCAPE" | "STORY";
       };
 
       const result = await templateService.listGroupedByCategory(query);

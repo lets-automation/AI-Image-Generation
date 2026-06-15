@@ -113,7 +113,7 @@ export const userApi = {
     limit?: number;
     contentType?: "EVENT" | "POSTER";
     categoryId?: string;
-    aspectRatio?: "SQUARE" | "PORTRAIT" | "LANDSCAPE";
+    aspectRatio?: "SQUARE" | "PORTRAIT" | "LANDSCAPE" | "STORY";
     search?: string;
   }) => {
     const query = new URLSearchParams();
@@ -144,7 +144,7 @@ export const userApi = {
 
   listGroupedTemplates: async (params: {
     contentType: "EVENT" | "POSTER";
-    aspectRatio?: "SQUARE" | "PORTRAIT" | "LANDSCAPE";
+    aspectRatio?: "SQUARE" | "PORTRAIT" | "LANDSCAPE" | "STORY";
   }) => {
     const query = new URLSearchParams();
     query.set("contentType", params.contentType);

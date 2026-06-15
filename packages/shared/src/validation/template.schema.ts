@@ -50,13 +50,13 @@ export const templateListQuery = z.object({
   contentType: z.enum(["EVENT", "POSTER"]).optional(),
   categoryId: z.string().cuid().optional(),
   isActive: z.coerce.boolean().optional(),
-  aspectRatio: z.enum(["SQUARE", "PORTRAIT", "LANDSCAPE"]).optional(),
+  aspectRatio: z.enum(["SQUARE", "PORTRAIT", "LANDSCAPE", "STORY"]).optional(),
   search: z.string().optional(),
 });
 
 export const templateGroupedQuery = z.object({
   contentType: z.enum(["EVENT", "POSTER"]),
-  aspectRatio: z.enum(["SQUARE", "PORTRAIT", "LANDSCAPE"]).optional(),
+  aspectRatio: z.enum(["SQUARE", "PORTRAIT", "LANDSCAPE", "STORY"]).optional(),
 });
 
 export type CreateTemplateInput = z.infer<typeof createTemplateSchema>;

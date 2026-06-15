@@ -110,7 +110,7 @@ export default function PostersPage() {
                 <TabsTrigger value="ALL" className="rounded-lg text-gray-600 transition-all data-[state=active]:bg-white data-[state=active]:text-primary-700 data-[state=active]:shadow-sm">All</TabsTrigger>
                 <TabsTrigger value="SQUARE" className="rounded-lg text-gray-600 transition-all data-[state=active]:bg-white data-[state=active]:text-primary-700 data-[state=active]:shadow-sm">Instagram</TabsTrigger>
                 <TabsTrigger value="LANDSCAPE" className="rounded-lg text-gray-600 transition-all data-[state=active]:bg-white data-[state=active]:text-primary-700 data-[state=active]:shadow-sm">Facebook</TabsTrigger>
-                <TabsTrigger value="PORTRAIT" className="rounded-lg text-gray-600 transition-all data-[state=active]:bg-white data-[state=active]:text-primary-700 data-[state=active]:shadow-sm">Snapchat</TabsTrigger>
+                <TabsTrigger value="STORY" className="rounded-lg text-gray-600 transition-all data-[state=active]:bg-white data-[state=active]:text-primary-700 data-[state=active]:shadow-sm">Snapchat</TabsTrigger>
               </TabsList>
             </Tabs>
 

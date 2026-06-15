@@ -19,7 +19,7 @@ interface BrowseState {
   // Filters
   contentType: "EVENT" | "POSTER";
   categoryId: string | null;
-  aspectRatio: "SQUARE" | "PORTRAIT" | "LANDSCAPE" | null;
+  aspectRatio: "SQUARE" | "PORTRAIT" | "LANDSCAPE" | "STORY" | null;
   page: number;
   searchQuery: string;
 
@@ -33,7 +33,7 @@ interface BrowseState {
   // Actions
   setContentType: (type: "EVENT" | "POSTER") => void;
   setCategoryId: (id: string | null) => void;
-  setAspectRatio: (ratio: "SQUARE" | "PORTRAIT" | "LANDSCAPE" | null) => void;
+  setAspectRatio: (ratio: "SQUARE" | "PORTRAIT" | "LANDSCAPE" | "STORY" | null) => void;
   setPage: (page: number) => void;
   fetchTemplates: () => Promise<void>;
   fetchGroupedCategories: () => Promise<void>;

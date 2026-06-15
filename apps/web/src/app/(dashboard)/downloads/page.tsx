@@ -38,6 +38,7 @@ interface GenerationItem {
   language: string;
   contentType: string;
   creditCost: number;
+  prompt: string | null;
   resultImageUrl: string | null;
   errorMessage: string | null;
   createdAt: string;
@@ -71,7 +72,11 @@ export default function DownloadsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [tab, setTab] = useState<"generations" | "downloads">("generations");
   const [lightbox, setLightbox] = useState<{ url: string; gen?: GenerationItem; dl?: DownloadItem } | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<DownloadItem | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<
+    | { kind: "download"; dl: DownloadItem }
+    | { kind: "generation"; gen: GenerationItem }
+    | null
+  >(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
   const fetchGenerations = useCallback(async () => {
@@ -126,22 +131,31 @@ export default function DownloadsPage() {
     }
   };
 
-  const handleDeleteDownload = async () => {
+  const handleDelete = async () => {
     if (!deleteTarget || isDeleting) return;
     setIsDeleting(true);
     try {
-      await apiClient.delete(`/downloads/${deleteTarget.id}`);
-      toast.success("Download removed");
+      if (deleteTarget.kind === "download") {
+        await apiClient.delete(`/downloads/${deleteTarget.dl.id}`);
+        toast.success("Download removed");
+      } else {
+        await apiClient.delete(`/generations/${deleteTarget.gen.id}`);
+        toast.success("Creative deleted");
+      }
       setDeleteTarget(null);
       // If this was the last item on the page, step back a page;
       // the page change triggers a refetch automatically.
-      if (downloads.length === 1 && page > 1) {
+      const itemsOnPage = deleteTarget.kind === "download" ? downloads.length : generations.length;
+      if (itemsOnPage === 1 && page > 1) {
         setPage((p) => p - 1);
-      } else {
+      } else if (deleteTarget.kind === "download") {
         fetchDownloads();
+      } else {
+        fetchGenerations();
       }
-    } catch {
-      toast.error("Failed to remove download");
+    } catch (err) {
+      const axErr = err as { response?: { data?: { error?: { message?: string } } } };
+      toast.error(axErr?.response?.data?.error?.message ?? "Failed to delete");
     } finally {
       setIsDeleting(false);
     }
@@ -195,6 +209,7 @@ export default function DownloadsPage() {
                 gen={gen}
                 onView={(url) => setLightbox({ url, gen })}
                 onDownload={() => handleDownload(gen.id)}
+                onDelete={() => setDeleteTarget({ kind: "generation", gen })}
               />
             ))}
           </div>
@@ -210,7 +225,7 @@ export default function DownloadsPage() {
           downloads={downloads}
           onView={(url, dl) => setLightbox({ url, dl })}
           onRedownload={handleDownload}
-          onDelete={(dl) => setDeleteTarget(dl)}
+          onDelete={(dl) => setDeleteTarget({ kind: "download", dl })}
         />
       )}
 
@@ -242,10 +257,10 @@ export default function DownloadsPage() {
       {/* Delete confirmation */}
       {deleteTarget && (
         <DeleteConfirmModal
-          download={deleteTarget}
+          target={deleteTarget}
           isDeleting={isDeleting}
           onCancel={() => { if (!isDeleting) setDeleteTarget(null); }}
-          onConfirm={handleDeleteDownload}
+          onConfirm={handleDelete}
         />
       )}
 
@@ -286,11 +301,12 @@ function TabButton({
 }
 
 function GenerationCard({
-  gen, onView, onDownload,
+  gen, onView, onDownload, onDelete,
 }: {
   gen: GenerationItem;
   onView: (url: string) => void;
   onDownload: () => void;
+  onDelete: () => void;
 }) {
   const optimizedUrl = cloudinaryOptimize(gen.resultImageUrl, 800);
   const isReady = gen.status === "COMPLETED" && gen.resultImageUrl;
@@ -330,6 +346,13 @@ function GenerationCard({
                   >
                     <DownloadIcon className="mr-1 inline h-3.5 w-3.5" /> Save
                   </button>
+                  <button
+                    onClick={onDelete}
+                    title="Delete creative"
+                    className="rounded-lg bg-white/90 p-2 text-gray-500 shadow transition-colors hover:bg-red-50 hover:text-red-600"
+                  >
+                    <TrashIcon className="h-3.5 w-3.5" />
+                  </button>
                 </div>
               </div>
             </>
@@ -351,9 +374,25 @@ function GenerationCard({
                     <AlertIcon className="h-5 w-5 text-red-500" />
                   </div>
                   <p className="text-center text-xs font-medium text-red-500">Generation failed</p>
+                  <button
+                    onClick={onDelete}
+                    className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-500 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600"
+                  >
+                    <TrashIcon className="h-3 w-3" />
+                    Remove
+                  </button>
                 </>
               ) : (
-                <ImageIcon className="h-10 w-10 text-gray-300" />
+                <>
+                  <ImageIcon className="h-10 w-10 text-gray-300" />
+                  <button
+                    onClick={onDelete}
+                    className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-500 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600"
+                  >
+                    <TrashIcon className="h-3 w-3" />
+                    Remove
+                  </button>
+                </>
               )}
             </div>
           )}
@@ -486,9 +525,11 @@ function DownloadsTable({
 }
 
 function DeleteConfirmModal({
-  download, isDeleting, onCancel, onConfirm,
+  target, isDeleting, onCancel, onConfirm,
 }: {
-  download: DownloadItem;
+  target:
+    | { kind: "download"; dl: DownloadItem }
+    | { kind: "generation"; gen: GenerationItem };
   isDeleting: boolean;
   onCancel: () => void;
   onConfirm: () => void;
@@ -502,7 +543,17 @@ function DeleteConfirmModal({
     return () => window.removeEventListener("keydown", handler);
   }, [onCancel]);
 
-  const previewUrl = cloudinaryOptimize(download.generation?.resultImageUrl ?? null, 200);
+  const isDownload = target.kind === "download";
+  const title = isDownload ? "Delete download?" : "Delete creative?";
+  const message = isDownload
+    ? "This removes the entry from your download history. The original creative stays in your gallery."
+    : "This permanently deletes the creative, its image, and any download history entries. This cannot be undone.";
+  const previewUrl = cloudinaryOptimize(
+    isDownload
+      ? target.dl.generation?.resultImageUrl ?? null
+      : target.gen.resultImageUrl,
+    200
+  );
 
   return (
     <div
@@ -518,10 +569,8 @@ function DeleteConfirmModal({
             <TrashIcon className="h-5 w-5 text-red-500" />
           </div>
           <div className="min-w-0">
-            <h3 className="text-base font-semibold text-gray-900">Delete download?</h3>
-            <p className="mt-1 text-sm text-gray-500">
-              This removes the entry from your download history. The original creative stays in your gallery.
-            </p>
+            <h3 className="text-base font-semibold text-gray-900">{title}</h3>
+            <p className="mt-1 text-sm text-gray-500">{message}</p>
           </div>
         </div>
         {previewUrl && (
@@ -529,8 +578,17 @@ function DeleteConfirmModal({
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={previewUrl} alt="" className="h-12 w-12 rounded-lg object-cover ring-1 ring-gray-200" />
             <div className="min-w-0 text-xs text-gray-500">
-              <p className="line-clamp-1 font-medium text-gray-700">{download.generation?.prompt ?? "—"}</p>
-              <p className="mt-0.5 font-mono uppercase">{download.format} · {download.resolution}</p>
+              {isDownload ? (
+                <>
+                  <p className="line-clamp-1 font-medium text-gray-700">{target.dl.generation?.prompt ?? "—"}</p>
+                  <p className="mt-0.5 font-mono uppercase">{target.dl.format} · {target.dl.resolution}</p>
+                </>
+              ) : (
+                <>
+                  <p className="line-clamp-1 font-medium text-gray-700">{target.gen.prompt || "—"}</p>
+                  <p className="mt-0.5 font-mono uppercase">{target.gen.qualityTier} · {target.gen.language}</p>
+                </>
+              )}
             </div>
           </div>
         )}

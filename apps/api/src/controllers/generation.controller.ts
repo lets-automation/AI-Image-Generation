@@ -129,6 +129,19 @@ export class GenerationController {
   }
 
   /**
+   * DELETE /api/v1/generations/:id
+   * Delete a generation owned by the requesting user.
+   */
+  async delete(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      await generationService.delete(req.params.id as string, req.userId!);
+      res.json({ success: true, data: { deleted: true } });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
    * GET /api/v1/generations/batch/:batchId
    * Get all generations in a multi-language batch.
    */

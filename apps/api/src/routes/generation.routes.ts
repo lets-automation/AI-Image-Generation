@@ -104,6 +104,13 @@ router.get(
   (req, res, next) => generationController.getById(req, res, next)
 );
 
+// DELETE /api/v1/generations/:id — Delete a generation (and its downloads/assets)
+router.delete(
+  "/:id",
+  validate({ params: generationIdParam }),
+  (req, res, next) => generationController.delete(req, res, next)
+);
+
 // GET /api/v1/generations/:id/status — SSE status stream
 router.get(
   "/:id/status",

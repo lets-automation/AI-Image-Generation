@@ -42,7 +42,7 @@ interface ListQuery {
   contentType?: ContentType;
   categoryId?: string;
   isActive?: boolean;
-  aspectRatio?: "SQUARE" | "PORTRAIT" | "LANDSCAPE";
+  aspectRatio?: "SQUARE" | "PORTRAIT" | "LANDSCAPE" | "STORY";
   search?: string;
 }
 
@@ -90,6 +90,7 @@ export class TemplateService {
     if (aspectRatio) {
       templates = templates.filter((t) => {
         if (aspectRatio === "SQUARE") return t.width === t.height;
+        if (aspectRatio === "STORY") return t.height / t.width >= 1.5;
         if (aspectRatio === "PORTRAIT") return t.height > t.width;
         if (aspectRatio === "LANDSCAPE") return t.width > t.height;
         return true;
@@ -110,7 +111,7 @@ export class TemplateService {
     };
   }
 
-  async listGroupedByCategory(query: { contentType: ContentType; aspectRatio?: "SQUARE" | "PORTRAIT" | "LANDSCAPE" }) {
+  async listGroupedByCategory(query: { contentType: ContentType; aspectRatio?: "SQUARE" | "PORTRAIT" | "LANDSCAPE" | "STORY" }) {
     const { contentType, aspectRatio } = query;
 
     // Fetch all active categories for this content type with their active templates
@@ -135,6 +136,7 @@ export class TemplateService {
       if (aspectRatio) {
         filteredTemplates = filteredTemplates.filter((t) => {
           if (aspectRatio === "SQUARE") return t.width === t.height;
+          if (aspectRatio === "STORY") return t.height / t.width >= 1.5;
           if (aspectRatio === "PORTRAIT") return t.height > t.width;
           if (aspectRatio === "LANDSCAPE") return t.width > t.height;
           return true;

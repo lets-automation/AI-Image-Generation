@@ -14,6 +14,10 @@ import { isTierSupported } from "../engine/router.js";
 import { isTierAllowedByCostGuard, recordCreditRevenue } from "../resilience/cost-guard.js";
 import { hasConflicts } from "../engine/layout/collision.js";
 import { moderatePrompt, moderateFieldValue } from "../moderation/index.js";
+import {
+  deleteFromCloudinary,
+  deleteVideoFromCloudinary,
+} from "../engine/upload/cloudinary.js";
 import { auditService } from "./audit.service.js";
 import { subscriptionService } from "./subscription.service.js";
 import type { Position } from "@ep/shared";
@@ -366,6 +370,53 @@ export class GenerationService {
     }
 
     return this.formatResponse(generation);
+  }
+
+  /**
+   * Delete a generation (owned by user) along with its download history
+   * and Cloudinary assets.
+   *
+   * Active generations (QUEUED/PROCESSING) cannot be deleted — the worker
+   * still holds a reference and would fail writing results to a missing row.
+   */
+  async delete(generationId: string, userId: string) {
+    const generation = await prisma.generation.findUnique({
+      where: { id: generationId },
+      select: {
+        id: true,
+        userId: true,
+        status: true,
+        resultPublicId: true,
+        resultVideoPublicId: true,
+      },
+    });
+
+    if (!generation || generation.userId !== userId) {
+      throw new NotFoundError("Generation");
+    }
+
+    if (generation.status === "QUEUED" || generation.status === "PROCESSING") {
+      throw new BadRequestError(
+        "Cannot delete a generation while it is still processing"
+      );
+    }
+
+    // Downloads reference the generation (no cascade in schema) — remove
+    // them in the same transaction so the FK never dangles.
+    await prisma.$transaction([
+      prisma.download.deleteMany({ where: { generationId } }),
+      prisma.generation.delete({ where: { id: generationId } }),
+    ]);
+
+    // Clean up Cloudinary assets (best effort — helpers swallow errors)
+    if (generation.resultPublicId) {
+      await deleteFromCloudinary(generation.resultPublicId);
+    }
+    if (generation.resultVideoPublicId) {
+      await deleteVideoFromCloudinary(generation.resultVideoPublicId);
+    }
+
+    logger.info({ generationId, userId }, "Generation deleted");
   }
 
   /**
